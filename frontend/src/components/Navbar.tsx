@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { useAuth } from "@/context/AuthProvider"
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { useEffect, useState } from "react"
@@ -22,11 +23,15 @@ export function Navbar() {
         <div className="flex justify-between h-16">
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
-              <Link 
-                href="/" 
-                className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-cyan-500"
-              >
-                SolForge
+              <Link href="/" className="h-16 w-auto">
+                <Image 
+                  src="/logo.png" 
+                  alt="SolForge Logo" 
+                  width={240} 
+                  height={64} 
+                  priority
+                  className="h-16 w-auto"
+                />
               </Link>
             </div>
             <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
