@@ -1,0 +1,67 @@
+# dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# next.js
+.next/
+/out/
+
+# production
+/build
+/dist
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+.env
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE
+.idea/
+.vscode/
+
+# Firebase
+.firebase/
+*.log
+
+# Solana Program
+bounty-program/target/
+bounty-program/test-ledger/
+*.sst
+*.log
+*.rlib
+*.node
+
+# Build caches
+.next/cache/
+dist/
+build/
+
+# Next.js build output
+.next/
+frontend/.next/
+
+# Rust/Solana build artifacts
+bounty-program/target/
+bounty-program/test-ledger/
+
+# Node modules
+frontend/node_modules/

@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isUserAuthenticated(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isValidBountyCreate() {
+      let bounty = request.resource.data;
+      return bounty.status == 'open' 
+        && bounty.creatorId == request.auth.uid
+        && bounty.amount > 0
+        && bounty.issueUrl.matches('https://github.com/.*')
+        && bounty.repositoryUrl.matches('https://github.com/.*');
+    }
+    
+    function isValidBountyClaim(bounty) {
+      return bounty.status == 'open' 
+        && request.resource.data.status == 'in_progress'
+        && request.resource.data.assigneeId == request.auth.uid;
+    }
+
+    function isValidSubmission() {
+      let submission = request.resource.data;
+      return submission.submitterId == request.auth.uid
+        && submission.prUrl.matches('https://github.com/.*/pull/.*');
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isUserAuthenticated(userId);
+      allow update: if isUserAuthenticated(userId);
+      allow delete: if false;
+    }
+
+    // Bounties collection
+    match /bounties/{bountyId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidBountyCreate();
+      allow update: if isAuthenticated() && (
+        // Creator can update only certain fields
+        (resource.data.creatorId == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys()
+         .hasOnly(['status', 'updatedAt'])) ||
+        // Claimer can update only when claiming
+        (isValidBountyClaim(resource.data))
+      );
+      allow delete: if false;
+    }
+
+    // Submissions collection
+    match /submissions/{submissionId} {
+      allow read: if isAuthenticated() && (
+        resource.data.submitterId == request.auth.uid ||
+        resource.data.reviewerId == request.auth.uid ||
+        resource.data.bounty.creatorId == request.auth.uid
+      );
+      allow create: if isAuthenticated() && isValidSubmission();
+      allow update: if isAuthenticated() && (
+        // Submitter can update their submission
+        resource.data.submitterId == request.auth.uid ||
+        // Reviewer (bounty creator) can update status and add comments
+        resource.data.bounty.creatorId == request.auth.uid
+      );
+      allow delete: if false;
+    }
+  }
+} 

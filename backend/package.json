@@ -1,0 +1,10 @@
+{
+  "name": "on-chain-bounty-board",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "firebase emulators:start --only functions",
+    "build": "tsc",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  }
+} 

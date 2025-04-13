@@ -1,0 +1,29 @@
+{
+  "name": "bounty-program",
+  "version": "1.0.0",
+  "description": "Solana program for creating, claiming, and completing bounties",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha tests/**/*.js",
+    "build": "cargo build-bpf",
+    "deploy": "solana program deploy target/deploy/bounty_program.so"
+  },
+  "keywords": [
+    "solana",
+    "blockchain",
+    "bounty"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@project-serum/anchor": "^0.24.2",
+    "@solana/spl-token": "^0.3.11",
+    "@solana/web3.js": "^1.98.0",
+    "borsh": "^2.0.0",
+    "fs": "^0.0.1-security"
+  },
+  "devDependencies": {
+    "chai": "^4.3.7",
+    "mocha": "^10.2.0"
+  }
+}

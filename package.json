@@ -1,0 +1,39 @@
+{
+  "name": "on-chain-bounty-board",
+  "version": "0.1.0",
+  "description": "On-chain Bounty Board for Open Source Contributions",
+  "main": "index.js",
+  "scripts": {
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "frontend": "cd frontend && npm run dev",
+    "backend": "cd backend && npm run dev",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "build": "npm run build:backend && npm run build:frontend",
+    "start:frontend": "cd frontend && npm start",
+    "start:backend": "cd backend && npm start",
+    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/on-chain-bounty-board.git"
+  },
+  "keywords": [
+    "solana",
+    "blockchain",
+    "bounty",
+    "open-source",
+    "github"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "pino-pretty": "^13.0.0",
+    "tailwind-merge": "^3.2.0"
+  }
+}
