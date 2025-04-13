@@ -6,6 +6,7 @@ export type BountyStatus = 'open' | 'in_progress' | 'completed' | 'cancelled';
 export type BountyCurrency = 'SOL' | 'USDC';
 
 export interface IBounty {
+  createdBy: ReactNode;
   id: string;
   title: string;
   description: string;

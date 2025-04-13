@@ -1,7 +1,7 @@
 'use client';
 
-import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth } from 'firebase/auth';
+import { initializeApp, getApp, getApps } from 'firebase/app';
+import { getAuth, Auth, browserLocalPersistence, setPersistence } from 'firebase/auth';
 import { getFunctions, Functions, httpsCallable } from 'firebase/functions';
 import { 
   getFirestore, 
@@ -19,7 +19,8 @@ import {
   CollectionReference,
   orderBy,
   serverTimestamp,
-  Timestamp
+  Timestamp,
+  enableIndexedDbPersistence
 } from 'firebase/firestore';
 import { IBounty } from '@/types/bounty';
 import { ISubmission, SubmissionStatus } from '@/types/submission';
@@ -33,30 +34,44 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-// Initialize Firebase only on client side and if not already initialized
-let app: FirebaseApp | undefined;
-let auth: Auth | undefined;
+// Initialize Firebase
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+
+// Get Auth instance
+export const auth = getAuth(app);
+
+// Set persistence to LOCAL (this keeps the user logged in even after browser refresh)
+if (typeof window !== "undefined") {
+  setPersistence(auth, browserLocalPersistence)
+    .catch((error) => {
+      console.error("Error setting auth persistence:", error);
+    });
+}
+
 let db: Firestore | undefined;
 let functions: Functions | undefined;
 
 function initializeFirebase() {
   if (typeof window === "undefined") return; // Skip initialization on server
 
-  if (!app) {
-    if (!getApps().length) {
-      app = initializeApp(firebaseConfig);
-    } else {
-      app = getApps()[0];
-    }
-    
-    auth = getAuth(app);
+  if (!db) {
     db = getFirestore(app);
+    
+    // Enable offline persistence for Firestore
+    enableIndexedDbPersistence(db)
+      .catch((err) => {
+        if (err.code === 'failed-precondition') {
+          console.warn('Firestore persistence could not be enabled (multiple tabs open)');
+        } else if (err.code === 'unimplemented') {
+          console.warn('Firestore persistence is not available in this browser');
+        }
+      });
+      
     functions = getFunctions(app);
   }
   
   return {
     app,
-    auth,
     db,
     functions
   };
@@ -67,29 +82,11 @@ if (typeof window !== "undefined") {
   initializeFirebase();
 }
 
-// Helper function to check if Firebase is initialized
-export function getFirebaseApp() {
-  initializeFirebase();
-  if (!app) {
-    throw new Error('Firebase is not initialized');
-  }
-  return app;
-}
-
-// Helper function to get auth instance
-export function getFirebaseAuth() {
-  initializeFirebase();
-  if (!auth) {
-    throw new Error('Firebase Auth is not initialized');
-  }
-  return auth;
-}
-
 // Helper function to get firestore instance
 export function getFirebaseFirestore() {
   initializeFirebase();
   if (!db) {
-    throw new Error('Firestore is not initialized');
+    db = getFirestore(app); // Try to initialize again if not available
   }
   return db;
 }
@@ -98,7 +95,7 @@ export function getFirebaseFirestore() {
 export function getFirebaseFunctions() {
   initializeFirebase();
   if (!functions) {
-    throw new Error('Firebase Functions is not initialized');
+    functions = getFunctions(app); // Try to initialize again if not available
   }
   return functions;
 }
@@ -372,7 +369,7 @@ export async function updateSubmissionStatus({
 }
 
 // Export the initialized services
-export { app, auth, db, functions };
+export { app, db, functions };
 
 // Export types
 export type { Functions };

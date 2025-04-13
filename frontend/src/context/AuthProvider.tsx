@@ -19,12 +19,14 @@ import {
   updateDoc,
   serverTimestamp, 
   getFirestore, 
-  Firestore 
+  Firestore,
+  FieldValue,
+  Timestamp
 } from 'firebase/firestore';
 import { fetchSignInMethodsForEmail } from 'firebase/auth';
-import { getFirebaseApp, getFirebaseAuth, getFirebaseFirestore } from '@/lib/firebase';
-import { IUser } from '@/types/user';
-import { getUserProfile } from '@/lib/github';
+import { auth, getFirebaseFirestore } from '@/lib/firebase';
+import { IUser, UserRole } from '@/types/user';
+import { signInWithGoogle as signInWithGoogleAuth, signInWithGithub as signInWithGithubAuth } from '@/lib/auth';
 
 interface AuthContextType {
   user: IUser | null;
@@ -34,6 +36,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   signInWithGithub: () => Promise<void>;
   signOut: () => Promise<void>;
+  forceRefresh: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -44,6 +47,7 @@ const AuthContext = createContext<AuthContextType>({
   signInWithGoogle: async () => {},
   signInWithGithub: async () => {},
   signOut: async () => {},
+  forceRefresh: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -55,249 +59,214 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<IUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshCounter, setRefreshCounter] = useState(0);
   const router = useRouter();
 
+  // Force refresh function to trigger re-auth check
+  const forceRefresh = () => {
+    console.log('Force refreshing auth state');
+    setRefreshCounter(prev => prev + 1);
+  };
+
+  // Check initial auth state
   useEffect(() => {
-    let unsubscribe: () => void;
-
-    const initializeAuth = async () => {
-      try {
-        const authInstance = getFirebaseAuth();
-        const dbInstance = getFirebaseFirestore();
-
-        // Set persistence to LOCAL (survives browser restart)
-        await setPersistence(authInstance, browserLocalPersistence);
-
-        unsubscribe = onAuthStateChanged(authInstance, async (firebaseUser) => {
-          if (firebaseUser) {
-            try {
-              // Get user data from Firestore
-              const userDoc = await getDoc(doc(dbInstance, 'users', firebaseUser.uid));
-              
-              if (userDoc.exists()) {
-                setUser(userDoc.data() as IUser);
-              } else {
-                // Create user document if it doesn't exist
-                const userData: IUser = {
-                  uid: firebaseUser.uid,
-                  email: firebaseUser.email || '',
-                  displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || '',
-                  photoURL: firebaseUser.photoURL || '',
-                  createdAt: serverTimestamp(),
-                  lastLogin: serverTimestamp(),
-                  role: 'contributor'
-                };
-                await setDoc(doc(dbInstance, 'users', firebaseUser.uid), userData);
-                setUser(userData);
-              }
-            } catch (error) {
-              console.error('Error fetching user data:', error);
-              setUser(null);
-            }
-          } else {
-            setUser(null);
-          }
-          setLoading(false);
-        });
-      } catch (error) {
-        console.error('Error initializing Firebase:', error);
-        setLoading(false);
-      }
-    };
-
-    initializeAuth();
-
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
+    console.log('Checking current auth state...');
+    // Check if user is already logged in
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      console.log('User already logged in:', currentUser.uid);
+      // Trigger user data fetch
+      fetchUserData(currentUser);
+    } else {
+      console.log('No user currently logged in');
+    }
   }, []);
 
-  const signInWithEmail = async (email: string, password: string) => {
+  // Fetch user data from Firestore
+  const fetchUserData = async (firebaseUser: User) => {
     try {
-      const auth = getFirebaseAuth();
-      const db = getFirebaseFirestore();
-      const { signInWithEmailAndPassword } = await import('firebase/auth');
-      const result = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Fetching user data from Firestore for:', firebaseUser.uid);
       
-      if (result.user) {
-        const userRef = doc(db, 'users', result.user.uid);
-        const userDoc = await getDoc(userRef);
+      // Fetch user data from Firestore
+      const db = getFirebaseFirestore();
+      const userRef = doc(db, 'users', firebaseUser.uid);
+      const userSnap = await getDoc(userRef);
+      
+      if (userSnap.exists()) {
+        // Convert Firestore document to IUser
+        const userData = userSnap.data();
+        console.log('User data found in Firestore:', userData);
+        setUser({
+          ...userData as IUser,
+        });
         
-        if (!userDoc.exists()) {
-          // Create user document if it doesn't exist
-          await setDoc(userRef, {
-            uid: result.user.uid,
-            email: result.user.email,
-            displayName: result.user.displayName || email.split('@')[0],
-            photoURL: result.user.photoURL,
-            role: 'contributor', // Default role
-            createdAt: serverTimestamp(),
-            lastLogin: serverTimestamp(),
-          });
-        } else {
-          // Update last login
-          await updateDoc(userRef, {
-            lastLogin: serverTimestamp(),
-          });
-        }
-        
-        router.push('/dashboard');
-      }
-    } catch (error: any) {
-      console.error('Sign in error:', error);
-      if (error.code === 'auth/invalid-credential') {
-        throw new Error('Invalid email or password. Please try again.');
-      } else if (error.code === 'auth/user-not-found') {
-        throw new Error('No account found with this email. Please sign up first.');
-      } else if (error.code === 'auth/wrong-password') {
-        throw new Error('Incorrect password. Please try again.');
+        // Update lastLogin timestamp
+        await updateDoc(userRef, {
+          lastLogin: serverTimestamp()
+        });
       } else {
-        throw new Error(error.message || 'Failed to sign in');
-      }
-    }
-  };
-
-  const signUpWithEmail = async (email: string, password: string) => {
-    try {
-      const auth = getFirebaseAuth();
-      const db = getFirebaseFirestore();
-      const { createUserWithEmailAndPassword } = await import('firebase/auth');
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-      
-      if (result.user) {
-        const userRef = doc(db, 'users', result.user.uid);
-        await setDoc(userRef, {
-          uid: result.user.uid,
-          email: result.user.email,
-          displayName: email.split('@')[0], // Use email prefix as display name
-          photoURL: null,
-          lastLogin: serverTimestamp(),
-        }, { merge: true });
+        console.log('Creating new user document in Firestore');
+        // Create new user document if it doesn't exist
+        const newUser: IUser = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          displayName: firebaseUser.displayName || '',
+          photoURL: firebaseUser.photoURL || '',
+          role: 'hunter' as UserRole,
+          createdAt: serverTimestamp() as Timestamp,
+          lastLogin: serverTimestamp() as Timestamp,
+        };
         
-        router.push('/dashboard');
-      }
-    } catch (error: any) {
-      throw new Error(error.message || 'Failed to create account');
-    }
-  };
-
-  const signInWithGoogle = async () => {
-    try {
-      const auth = getFirebaseAuth();
-      const db = getFirebaseFirestore();
-      const { signInWithPopup, GoogleAuthProvider } = await import('firebase/auth');
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      
-      if (result.user) {
-        const userRef = doc(db, 'users', result.user.uid);
-        await setDoc(userRef, {
-          uid: result.user.uid,
-          email: result.user.email,
-          displayName: result.user.displayName,
-          photoURL: result.user.photoURL,
-          lastLogin: serverTimestamp(),
-        }, { merge: true });
-        
-        router.push('/dashboard');
-      }
-    } catch (error: any) {
-      console.error('Error signing in with Google:', error);
-      throw new Error(error.message || 'Failed to sign in with Google');
-    }
-  };
-
-  const signInWithGithub = async () => {
-    try {
-      const auth = getFirebaseAuth();
-      const db = getFirebaseFirestore();
-      const { 
-        signInWithPopup, 
-        GithubAuthProvider,
-        signInWithCredential,
-        linkWithCredential,
-        GoogleAuthProvider
-      } = await import('firebase/auth');
-      
-      const provider = new GithubAuthProvider();
-      
-      try {
-        const result = await signInWithPopup(auth, provider);
-        console.log('GitHub sign in successful:', result.user.uid);
-        
-        // Update or create user profile
-        if (result.user) {
-          const userRef = doc(db, 'users', result.user.uid);
-          await setDoc(userRef, {
-            uid: result.user.uid,
-            email: result.user.email,
-            displayName: result.user.displayName,
-            photoURL: result.user.photoURL,
-            githubToken: GithubAuthProvider.credentialFromResult(result)?.accessToken,
-            lastLogin: serverTimestamp(),
-          }, { merge: true });
-          
-          router.push('/dashboard');
-        }
-      } catch (error: any) {
-        if (error.code === 'auth/account-exists-with-different-credential') {
-          // Get existing providers for the email
-          const email = error.customData?.email;
-          const pendingCred = GithubAuthProvider.credentialFromError(error);
-          
-          if (email && pendingCred) {
-            const providers = await fetchSignInMethodsForEmail(auth, email);
-            if (providers[0] === 'google.com') {
-              // If the user has previously signed in with Google
-              if (confirm('This email is already associated with a Google account. Would you like to link your GitHub account to it? Click OK to sign in with Google and link accounts.')) {
-                const googleProvider = new GoogleAuthProvider();
-                try {
-                  const result = await signInWithPopup(auth, googleProvider);
-                  await linkWithCredential(result.user, pendingCred);
-                  router.push('/dashboard');
-                } catch (linkError) {
-                  console.error('Error linking accounts:', linkError);
-                  alert('Error linking accounts. Please try again.');
-                }
-              }
-            } else {
-              alert(`This email is already associated with ${providers[0]}. Please sign in with that method first.`);
-            }
-          }
-        } else {
-          console.error('Error signing in with GitHub:', error);
-          alert('Error signing in with GitHub. Please try again.');
-        }
+        await setDoc(userRef, newUser);
+        console.log('New user created:', newUser);
+        setUser(newUser);
       }
     } catch (error) {
-      console.error('Fatal error during authentication:', error);
-      alert('An unexpected error occurred. Please try again.');
+      console.error('Error fetching user data:', error);
+      // Set basic user data from Firebase Auth
+      const basicUser = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || '',
+        displayName: firebaseUser.displayName || '',
+        photoURL: firebaseUser.photoURL || '',
+        role: 'hunter' as UserRole,
+        createdAt: serverTimestamp() as Timestamp,
+        lastLogin: serverTimestamp() as Timestamp,
+      };
+      console.log('Using basic user data as fallback:', basicUser);
+      setUser(basicUser);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Set up auth state listener
+  useEffect(() => {
+    console.log('Setting up auth state listener...');
+    
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log('Auth state changed:', firebaseUser ? `User: ${firebaseUser.uid}` : 'No user');
+      
+      if (firebaseUser) {
+        await fetchUserData(firebaseUser);
+      } else {
+        // User is signed out
+        console.log('User signed out');
+        setUser(null);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      console.log('Cleaning up auth state listener');
+      unsubscribe();
+    };
+  }, [refreshCounter]);
+
+  // Sign in with email/password
+  const signInWithEmail = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      console.log('Signing in with email:', email);
+      const { signInWithEmailAndPassword } = await import('firebase/auth');
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Email sign-in successful:', result.user.uid);
+      // Manually refresh to trigger immediate user data fetch
+      forceRefresh();
+      // Manually redirect to dashboard
+      router.push('/dashboard');
+    } catch (error) {
+      console.error('Email sign-in error:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  // Sign up with email/password
+  const signUpWithEmail = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      console.log('Signing up with email:', email);
+      const { createUserWithEmailAndPassword } = await import('firebase/auth');
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      console.log('Email sign-up successful:', result.user.uid);
+      // Manually refresh to trigger immediate user data fetch
+      forceRefresh();
+      // Manually redirect to dashboard
+      router.push('/dashboard');
+    } catch (error) {
+      console.error('Email sign-up error:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  // Sign in with Google
+  const signInWithGoogle = async () => {
+    setLoading(true);
+    try {
+      console.log('Signing in with Google');
+      await signInWithGoogleAuth();
+      console.log('Google sign-in completed');
+      // Manually refresh to trigger immediate user data fetch
+      forceRefresh();
+      // Manually redirect to dashboard
+      router.push('/dashboard');
+    } catch (error) {
+      console.error('Google sign-in error:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  // Sign in with GitHub
+  const signInWithGithub = async () => {
+    setLoading(true);
+    try {
+      console.log('Signing in with GitHub');
+      await signInWithGithubAuth();
+      console.log('GitHub sign-in completed');
+      // Manually refresh to trigger immediate user data fetch
+      forceRefresh();
+      // Manually redirect to dashboard
+      router.push('/dashboard');
+    } catch (error) {
+      console.error('GitHub sign-in error:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  // Sign out
   const signOut = async () => {
     try {
-      const auth = getFirebaseAuth();
+      console.log('Signing out');
       await firebaseSignOut(auth);
+      console.log('Sign-out completed');
       setUser(null);
+      // Manually redirect to home page
       router.push('/');
     } catch (error) {
       console.error('Error signing out:', error);
+      throw error;
     }
   };
 
+  console.log('Current auth state:', { user, loading });
+
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      loading, 
-      signInWithEmail,
-      signUpWithEmail,
-      signInWithGoogle,
-      signInWithGithub, 
-      signOut 
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        signInWithEmail,
+        signUpWithEmail,
+        signInWithGoogle,
+        signInWithGithub,
+        signOut,
+        forceRefresh,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
