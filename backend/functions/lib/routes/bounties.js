@@ -3,8 +3,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyPR = exports.claimBountyHandler = exports.createBountyHandler = exports.getBountyById = exports.getAllBounties = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("../services/firestore");
+const functionConfig = {
+    enforceAppCheck: false,
+    cors: ['http://localhost:3000', 'https://coingate-3b632.web.app', 'https://coingate-3b632.firebaseapp.com'],
+    maxInstances: 10,
+    region: 'us-central1'
+};
 // Get all bounties
-exports.getAllBounties = (0, https_1.onCall)(async (request) => {
+exports.getAllBounties = (0, https_1.onCall)(functionConfig, async (request) => {
     try {
         const bounties = await (0, firestore_1.listBounties)();
         return bounties;
@@ -15,7 +21,7 @@ exports.getAllBounties = (0, https_1.onCall)(async (request) => {
     }
 });
 // Get bounty by ID
-exports.getBountyById = (0, https_1.onCall)(async (request) => {
+exports.getBountyById = (0, https_1.onCall)(functionConfig, async (request) => {
     try {
         const data = request.data;
         const { bountyId } = data;
@@ -34,13 +40,13 @@ exports.getBountyById = (0, https_1.onCall)(async (request) => {
     }
 });
 // Create new bounty
-exports.createBountyHandler = (0, https_1.onCall)(async (request) => {
+exports.createBountyHandler = (0, https_1.onCall)(functionConfig, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
     }
     const data = request.data;
-    const { title, description, amount, tokenMint } = data;
-    if (!title || !description || !amount) {
+    const { title, description, amount, tokenMint, issueUrl, repositoryUrl } = data;
+    if (!title || !description || !amount || !issueUrl || !repositoryUrl) {
         throw new https_1.HttpsError('invalid-argument', 'Missing required fields');
     }
     try {
@@ -49,6 +55,8 @@ exports.createBountyHandler = (0, https_1.onCall)(async (request) => {
             description,
             amount,
             tokenMint,
+            issueUrl,
+            repositoryUrl,
             createdBy: request.auth.uid,
             status: 'open'
         });
@@ -60,7 +68,7 @@ exports.createBountyHandler = (0, https_1.onCall)(async (request) => {
     }
 });
 // Claim a bounty
-exports.claimBountyHandler = (0, https_1.onCall)(async (request) => {
+exports.claimBountyHandler = (0, https_1.onCall)(functionConfig, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
     }
@@ -85,7 +93,7 @@ exports.claimBountyHandler = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError('internal', 'Failed to claim bounty');
     }
 });
-exports.verifyPR = (0, https_1.onCall)((request) => {
+exports.verifyPR = (0, https_1.onCall)(functionConfig, (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
     }

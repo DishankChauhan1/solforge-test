@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import { User, UserDocument } from '../types/schema';
 import { Query, CollectionReference } from 'firebase-admin/firestore';
+import { BountyStatus } from '../types/bounty';
 
 // Get Firestore instance
 const getDb = () => {
@@ -148,4 +149,38 @@ export const approveBounty = async (bountyId: string): Promise<BountyDocument> =
 
   const bountyDoc = await db.collection('bounties').doc(bountyId).get();
   return { id: bountyDoc.id, ...bountyDoc.data() } as unknown as BountyDocument;
-}; 
+};
+
+export const getBountyByPR = async (prUrl: string): Promise<Bounty | null> => {
+  const db = getDb();
+  const bountySnapshot = await db.collection('bounties')
+    .where('claimPR', '==', prUrl)
+    .limit(1)
+    .get();
+  
+  if (bountySnapshot.empty) {
+    return null;
+  }
+  
+  const doc = bountySnapshot.docs[0];
+  return { id: doc.id, ...doc.data() } as Bounty;
+};
+
+export async function updateBountyStatus(
+  bountyId: string,
+  status: BountyStatus,
+  metadata?: Record<string, any>
+): Promise<void> {
+  try {
+    const bountyRef = getDb().collection('bounties').doc(bountyId);
+    
+    await bountyRef.update({
+      status,
+      updatedAt: admin.firestore.Timestamp.now(),
+      ...(metadata && { statusMetadata: metadata })
+    });
+  } catch (error) {
+    console.error('Error updating bounty status:', error);
+    throw error;
+  }
+} 

@@ -24,7 +24,7 @@ const createSolBounty = async (walletPublicKey, amount, description) => {
         const lamports = Math.floor(amount * anchor_1.web3.LAMPORTS_PER_SOL);
         // Create instruction data
         const data = Buffer.from([
-            0,
+            0, // CreateSolBounty instruction
             ...new Uint8Array(new Uint16Array([lamports]).buffer),
             ...Buffer.from(description),
         ]);
