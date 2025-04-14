@@ -3,32 +3,23 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum BountyError {
-    #[error("Invalid amount")]
-    InvalidAmount,
-    
+    #[error("Invalid deadline")]
+    InvalidDeadline,
+
+    #[error("Bounty has expired")]
+    BountyExpired,
+
     #[error("Invalid bounty state")]
     InvalidBountyState,
-    
-    #[error("Invalid claimant")]
-    InvalidClaimant,
-    
-    #[error("Not enough funds")]
-    InsufficientFunds,
-    
-    #[error("Invalid token account")]
-    InvalidTokenAccount,
-    
-    #[error("Invalid token mint")]
-    InvalidTokenMint,
-    
-    #[error("Bounty already claimed")]
-    AlreadyClaimed,
-    
+
     #[error("Invalid creator")]
     InvalidCreator,
-    
-    #[error("Bounty not claimed")]
-    NotClaimed,
+
+    #[error("Invalid claimant")]
+    InvalidClaimant,
+
+    #[error("Arithmetic overflow")]
+    Overflow,
 }
 
 impl From<BountyError> for ProgramError {

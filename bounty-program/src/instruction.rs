@@ -7,56 +7,82 @@ use solana_program::{
     program_error::ProgramError,
 };
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub enum BountyInstruction {
-    /// Create a new bounty with SOL
+    /// Creates a new SOL bounty
     /// 
     /// Accounts expected:
-    /// 0. `[signer]` Creator account
-    /// 1. `[writable]` Bounty account, to be created
+    /// 0. `[signer]` The bounty creator
+    /// 1. `[writable]` The bounty account to create
     /// 2. `[]` System program
     CreateSolBounty {
         amount: u64,
         description: String,
+        issue_hash: [u8; 32],
+        issue_url: String,
+        repository_url: String,
+        deadline: i64,
     },
 
-    /// Create a new bounty with SPL Token
+    /// Creates a new SPL Token bounty
     /// 
     /// Accounts expected:
-    /// 0. `[signer]` Creator account
-    /// 1. `[writable]` Bounty account, to be created
-    /// 2. `[writable]` Creator's token account
-    /// 3. `[writable]` Bounty's token account
-    /// 4. `[]` Token program
-    /// 5. `[]` System program
+    /// 0. `[signer]` The bounty creator
+    /// 1. `[writable]` The bounty account to create
+    /// 2. `[writable]` The creator's token account to transfer from
+    /// 3. `[writable]` The bounty's token account to transfer to
+    /// 4. `[]` The token mint
+    /// 5. `[]` Token program
+    /// 6. `[]` System program
     CreateTokenBounty {
         amount: u64,
         description: String,
+        issue_hash: [u8; 32],
+        issue_url: String,
+        repository_url: String,
+        deadline: i64,
         token_mint: Pubkey,
     },
 
-    /// Claim a bounty
+    /// Locks a bounty for claiming
     /// 
     /// Accounts expected:
-    /// 0. `[signer]` Claimant account
-    /// 1. `[writable]` Bounty account
-    ClaimBounty,
+    /// 0. `[signer]` The claimant
+    /// 1. `[writable]` The bounty account
+    LockBounty {
+        bounty_pubkey: Pubkey,
+    },
 
-    /// Complete a bounty and release funds
+    /// Claims a locked bounty
     /// 
-    /// Accounts expected for SOL bounty:
-    /// 0. `[signer]` Creator account
-    /// 1. `[writable]` Claimant account
-    /// 2. `[writable]` Bounty account
+    /// Accounts expected:
+    /// 0. `[signer]` The claimant
+    /// 1. `[writable]` The bounty account
+    ClaimBounty {
+        bounty_pubkey: Pubkey,
+    },
+
+    /// Cancels an available bounty
     /// 
-    /// Accounts expected for SPL Token bounty:
-    /// 0. `[signer]` Creator account
-    /// 1. `[writable]` Claimant account
-    /// 2. `[writable]` Bounty account
-    /// 3. `[]` Token program
-    /// 4. `[writable]` Bounty's token account
-    /// 5. `[writable]` Claimant's token account
-    CompleteBounty,
+    /// Accounts expected:
+    /// 0. `[signer]` The bounty creator
+    /// 1. `[writable]` The bounty account
+    /// 2. `[writable]` The creator's refund account (native SOL or token account)
+    /// 3. `[]` Token program (if token bounty)
+    CancelBounty {
+        bounty_pubkey: Pubkey,
+    },
+
+    /// Completes a claimed bounty
+    /// 
+    /// Accounts expected:
+    /// 0. `[signer]` The bounty creator
+    /// 1. `[writable]` The bounty account
+    /// 2. `[writable]` The claimant's reward account (native SOL or token account)
+    /// 3. `[]` Token program (if token bounty)
+    CompleteBounty {
+        bounty_pubkey: Pubkey,
+    },
 }
 
 impl BountyInstruction {
@@ -66,10 +92,18 @@ impl BountyInstruction {
         bounty_account: &Pubkey,
         amount: u64,
         description: String,
+        issue_hash: [u8; 32],
+        issue_url: String,
+        repository_url: String,
+        deadline: i64,
     ) -> Result<Instruction, ProgramError> {
         let data = Self::CreateSolBounty {
             amount,
             description,
+            issue_hash,
+            issue_url,
+            repository_url,
+            deadline,
         };
         let data = borsh::to_vec(&data)?;
         
@@ -90,15 +124,23 @@ impl BountyInstruction {
         creator: &Pubkey,
         bounty_account: &Pubkey,
         creator_token: &Pubkey,
-        program_token: &Pubkey,
+        bounty_token: &Pubkey,
         token_mint: &Pubkey,
         token_program: &Pubkey,
         amount: u64,
         description: String,
+        issue_hash: [u8; 32],
+        issue_url: String,
+        repository_url: String,
+        deadline: i64,
     ) -> Result<Instruction, ProgramError> {
         let data = Self::CreateTokenBounty {
             amount,
             description,
+            issue_hash,
+            issue_url,
+            repository_url,
+            deadline,
             token_mint: *token_mint,
         };
         let data = borsh::to_vec(&data)?;
@@ -109,7 +151,7 @@ impl BountyInstruction {
                 AccountMeta::new(*creator, true),
                 AccountMeta::new(*bounty_account, false),
                 AccountMeta::new(*creator_token, false),
-                AccountMeta::new(*program_token, false),
+                AccountMeta::new(*bounty_token, false),
                 AccountMeta::new_readonly(*token_mint, false),
                 AccountMeta::new_readonly(*token_program, false),
                 AccountMeta::new_readonly(system_program::id(), false),
@@ -119,12 +161,14 @@ impl BountyInstruction {
         })
     }
 
-    pub fn claim_bounty(
+    pub fn lock_bounty(
         program_id: &Pubkey,
         claimant: &Pubkey,
         bounty_account: &Pubkey,
     ) -> Result<Instruction, ProgramError> {
-        let data = Self::ClaimBounty;
+        let data = Self::LockBounty {
+            bounty_pubkey: *bounty_account,
+        };
         let data = borsh::to_vec(&data)?;
         
         Ok(Instruction {
@@ -137,31 +181,45 @@ impl BountyInstruction {
         })
     }
 
-    pub fn complete_bounty(
+    pub fn claim_bounty(
+        program_id: &Pubkey,
+        claimant: &Pubkey,
+        bounty_account: &Pubkey,
+    ) -> Result<Instruction, ProgramError> {
+        let data = Self::ClaimBounty {
+            bounty_pubkey: *bounty_account,
+        };
+        let data = borsh::to_vec(&data)?;
+        
+        Ok(Instruction {
+            program_id: *program_id,
+            accounts: vec![
+                AccountMeta::new(*claimant, true),
+                AccountMeta::new(*bounty_account, false),
+            ],
+            data,
+        })
+    }
+
+    pub fn cancel_bounty(
         program_id: &Pubkey,
         creator: &Pubkey,
         bounty_account: &Pubkey,
-        claimant: &Pubkey,
-        program_token: Option<&Pubkey>,
-        claimant_token: Option<&Pubkey>,
+        refund_account: &Pubkey,
         token_program: Option<&Pubkey>,
     ) -> Result<Instruction, ProgramError> {
-        let data = borsh::to_vec(&Self::CompleteBounty)?;
+        let data = borsh::to_vec(&Self::CancelBounty {
+            bounty_pubkey: *bounty_account,
+        })?;
         
         let mut accounts = vec![
             AccountMeta::new(*creator, true),
             AccountMeta::new(*bounty_account, false),
-            AccountMeta::new(*claimant, false),
-            AccountMeta::new_readonly(system_program::id(), false),
+            AccountMeta::new(*refund_account, false),
         ];
 
-        if let (Some(program_token), Some(claimant_token), Some(token_program)) = 
-            (program_token, claimant_token, token_program) {
-            accounts.extend_from_slice(&[
-                AccountMeta::new(*program_token, false),
-                AccountMeta::new(*claimant_token, false),
-                AccountMeta::new_readonly(*token_program, false),
-            ]);
+        if let Some(token_program) = token_program {
+            accounts.push(AccountMeta::new_readonly(*token_program, false));
         }
 
         Ok(Instruction {
@@ -169,5 +227,38 @@ impl BountyInstruction {
             accounts,
             data,
         })
+    }
+
+    pub fn complete_bounty(
+        program_id: &Pubkey,
+        creator: &Pubkey,
+        bounty_account: &Pubkey,
+        reward_account: &Pubkey,
+        token_program: Option<&Pubkey>,
+    ) -> Result<Instruction, ProgramError> {
+        let data = borsh::to_vec(&Self::CompleteBounty {
+            bounty_pubkey: *bounty_account,
+        })?;
+        
+        let mut accounts = vec![
+            AccountMeta::new(*creator, true),
+            AccountMeta::new(*bounty_account, false),
+            AccountMeta::new(*reward_account, false),
+        ];
+
+        if let Some(token_program) = token_program {
+            accounts.push(AccountMeta::new_readonly(*token_program, false));
+        }
+
+        Ok(Instruction {
+            program_id: *program_id,
+            accounts,
+            data,
+        })
+    }
+
+    /// Unpacks a byte buffer into a BountyInstruction
+    pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
+        BorshDeserialize::try_from_slice(input).map_err(|_| ProgramError::InvalidInstructionData)
     }
 } 

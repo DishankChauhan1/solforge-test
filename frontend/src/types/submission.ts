@@ -11,12 +11,13 @@ export interface ISubmission {
   submitterId: string;
   submitter?: IUser;
   prUrl: string;
+  files: string[];
   status: SubmissionStatus;
   createdAt: Timestamp;
   updatedAt: Timestamp;
-  reviewedAt?: Timestamp;
   reviewerId?: string;
-  reviewer?: IUser;
+  reviewerComments?: string;
+  reviewedAt?: Timestamp;
   comments?: string;
   zkProof?: string;
   commitHash?: string;

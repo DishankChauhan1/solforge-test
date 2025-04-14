@@ -632,12 +632,12 @@ name = "bounty-program"
 version = "0.1.0"
 dependencies = [
  "borsh 0.10.3",
+ "chrono",
  "solana-program",
  "solana-program-test",
  "solana-sdk",
  "spl-token",
  "thiserror",
- "tokio",
 ]
 
 [[package]]

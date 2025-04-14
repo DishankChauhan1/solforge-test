@@ -22,7 +22,7 @@ import {
   Timestamp,
   enableIndexedDbPersistence
 } from 'firebase/firestore';
-import { IBounty } from '@/types/bounty';
+import { IBounty, BountyStatus } from '@/types/bounty';
 import { ISubmission, SubmissionStatus } from '@/types/submission';
 import { UserRole } from '@/types/user';
 
@@ -357,16 +357,11 @@ export async function updateSubmissionStatus({
 
   try {
     const submissionRef = doc(db, 'submissions', submissionId);
-    const submissionDoc = await getDoc(submissionRef);
-
-    if (!submissionDoc.exists()) {
-      throw new Error('Submission not found');
-    }
-
     await updateDoc(submissionRef, {
       status,
       reviewerId,
       reviewerComments: reviewerComments || null,
+      reviewedAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
   } catch (error) {
@@ -398,6 +393,24 @@ export async function updateUserProfile(
     });
   } catch (error) {
     console.error('Error updating user profile:', error);
+    throw error;
+  }
+}
+
+// Helper function to update bounty status
+export async function updateBountyStatus(bountyId: string, status: BountyStatus): Promise<void> {
+  if (!db) {
+    throw new Error('Firestore is not initialized');
+  }
+
+  try {
+    const bountyRef = doc(db, 'bounties', bountyId);
+    await updateDoc(bountyRef, {
+      status,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating bounty status:', error);
     throw error;
   }
 }

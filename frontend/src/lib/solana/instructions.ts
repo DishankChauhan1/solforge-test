@@ -4,8 +4,10 @@ import {
   TransactionInstruction,
   Connection,
   SYSVAR_RENT_PUBKEY,
+  Transaction,
+  sendAndConfirmTransaction,
 } from '@solana/web3.js';
-import { Program, AnchorProvider } from '@project-serum/anchor';
+import { Program, AnchorProvider, BN } from '@project-serum/anchor';
 import { BountyCurrency } from '@/types/bounty';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { IDL } from './idl';
@@ -17,30 +19,26 @@ interface CreateBountyInstructionParams {
   creator: PublicKey;
 }
 
-interface ClaimBountyParams {
-  issueHash: string;
-  amount: number;
-  currency: 'SOL' | 'USDC';
-  creator: string;
-  claimer: PublicKey;
+export class TransactionError extends Error {
+  constructor(message: string, public code: string) {
+    super(message);
+    this.name = 'TransactionError';
+  }
 }
 
 // Program and token addresses
-const PROGRAM_ID = new PublicKey('9p1X1hkMwYRaVfknfQGEdqvph9VQmKjkeRhzKCaz3PeQ');  // Replace with your actual program ID
+const PROGRAM_ID = new PublicKey('9p1X1hkMwYRaVfknfQGEdqvph9VQmKjkeRhzKCaz3PeQ');  // Replace with actual program ID
 const USDC_MINT = new PublicKey('Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr'); // Devnet USDC
 const BOUNTY_PDA_SEED = 'bounty';
 
 async function getBountyProgram() {
-  // Get the provider
   const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL!);
   const provider = new AnchorProvider(
     connection,
-    // @ts-ignore - wallet will be injected by the wallet adapter
+    // @ts-ignore - wallet will be injected by wallet adapter
     window.solana,
     { commitment: 'confirmed' }
   );
-
-  // Create the program interface
   return new Program(IDL, PROGRAM_ID, provider);
 }
 
@@ -108,6 +106,21 @@ export async function createBountyInstruction({
   });
 }
 
+export async function findBountyPDA(issueHash: string): Promise<[PublicKey, number]> {
+  return PublicKey.findProgramAddress(
+    [Buffer.from(issueHash), Buffer.from('bounty')],
+    PROGRAM_ID
+  );
+}
+
+export interface ClaimBountyParams {
+  issueHash: string;
+  amount: number;
+  currency: BountyCurrency;
+  creator: string;
+  claimer: PublicKey;
+}
+
 export async function claimBountyInstruction({
   issueHash,
   amount,
@@ -116,40 +129,133 @@ export async function claimBountyInstruction({
   claimer
 }: ClaimBountyParams): Promise<TransactionInstruction> {
   const program = await getBountyProgram();
-  const [bountyPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from(issueHash), Buffer.from('bounty')],
-    program.programId
-  );
-
+  const [bountyPda] = await findBountyPDA(issueHash);
   const creatorPubkey = new PublicKey(creator);
 
-  if (currency === 'SOL') {
-    return program.methods
-      .claimBounty(issueHash)
-      .accounts({
-        bounty: bountyPda,
-        creator: creatorPubkey,
-        claimer: claimer,
-        systemProgram: SystemProgram.programId,
-      })
-      .instruction();
-  } else {
-    // For USDC, we need to handle token accounts
-    const mint = new PublicKey(USDC_MINT);
-    const creatorAta = await getAssociatedTokenAddress(mint, creatorPubkey);
-    const claimerAta = await getAssociatedTokenAddress(mint, claimer);
+  try {
+    if (currency === 'SOL') {
+      return program.methods
+        .claimBounty(issueHash, new BN(amount))
+        .accounts({
+          bounty: bountyPda,
+          creator: creatorPubkey,
+          claimer: claimer,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+    } else {
+      // For USDC, handle token accounts
+      const mint = new PublicKey(USDC_MINT);
+      const creatorAta = await getAssociatedTokenAddress(mint, creatorPubkey);
+      const claimerAta = await getAssociatedTokenAddress(mint, claimer);
+      const bountyAta = await getAssociatedTokenAddress(mint, bountyPda, true);
 
-    return program.methods
-      .claimTokenBounty(issueHash)
-      .accounts({
-        bounty: bountyPda,
-        creator: creatorPubkey,
-        creatorTokenAccount: creatorAta,
-        claimer: claimer,
-        claimerTokenAccount: claimerAta,
-        mint: mint,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .instruction();
+      return program.methods
+        .claimTokenBounty(issueHash, new BN(amount))
+        .accounts({
+          bounty: bountyPda,
+          creator: creatorPubkey,
+          creatorTokenAccount: creatorAta,
+          claimer: claimer,
+          claimerTokenAccount: claimerAta,
+          bountyTokenAccount: bountyAta,
+          mint: mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .instruction();
+    }
+  } catch (error: any) {
+    console.error('Error creating claim instruction:', error);
+    throw new TransactionError(
+      error.message || 'Failed to create claim instruction',
+      'CLAIM_INSTRUCTION_FAILED'
+    );
+  }
+}
+
+export async function simulateClaimTransaction(
+  connection: Connection,
+  transaction: Transaction,
+  feePayer: PublicKey
+): Promise<void> {
+  try {
+    const simulation = await connection.simulateTransaction(transaction);
+    
+    if (simulation.value.err) {
+      const errorLogs = simulation.value.logs?.join('\n') || 'No error logs available';
+      console.error('Transaction simulation failed:', errorLogs);
+      
+      // Parse common error cases
+      if (errorLogs.includes('insufficient funds')) {
+        throw new TransactionError('Insufficient funds for transaction', 'INSUFFICIENT_FUNDS');
+      }
+      if (errorLogs.includes('already claimed')) {
+        throw new TransactionError('Bounty has already been claimed', 'ALREADY_CLAIMED');
+      }
+      if (errorLogs.includes('invalid bounty state')) {
+        throw new TransactionError('Bounty is in an invalid state', 'INVALID_STATE');
+      }
+      
+      throw new TransactionError(
+        'Transaction simulation failed: ' + simulation.value.err.toString(),
+        'SIMULATION_FAILED'
+      );
+    }
+  } catch (error: any) {
+    if (error instanceof TransactionError) {
+      throw error;
+    }
+    throw new TransactionError(
+      error.message || 'Failed to simulate transaction',
+      'SIMULATION_ERROR'
+    );
+  }
+}
+
+export async function sendAndConfirmClaimTransaction(
+  connection: Connection,
+  transaction: Transaction,
+  feePayer: PublicKey
+): Promise<string> {
+  try {
+    // Get recent blockhash
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = feePayer;
+
+    // Send transaction
+    const signature = await window.solana.signAndSendTransaction(transaction);
+    
+    // Wait for confirmation
+    const confirmation = await connection.confirmTransaction({
+      signature,
+      blockhash,
+      lastValidBlockHeight
+    });
+
+    if (confirmation.value.err) {
+      throw new TransactionError(
+        'Transaction failed to confirm: ' + confirmation.value.err.toString(),
+        'CONFIRMATION_FAILED'
+      );
+    }
+
+    return signature;
+  } catch (error: any) {
+    console.error('Transaction failed:', error);
+    
+    if (error instanceof TransactionError) {
+      throw error;
+    }
+
+    // Handle wallet errors
+    if (error.code === 4001) {
+      throw new TransactionError('Transaction rejected by user', 'USER_REJECTED');
+    }
+
+    throw new TransactionError(
+      error.message || 'Failed to send transaction',
+      'SEND_TRANSACTION_FAILED'
+    );
   }
 } 
