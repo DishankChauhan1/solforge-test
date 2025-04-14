@@ -16,12 +16,9 @@ export default function BountiesPage() {
   useEffect(() => {
     async function fetchBounties() {
       try {
-        const result = await getAllBountiesFunction();
-        if (Array.isArray(result.data)) {
-          setBounties(result.data);
-        } else {
-          setBounties([]);
-        }
+        const getAllBounties = getAllBountiesFunction();
+        const { data } = await getAllBounties();
+        setBounties(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error('Error fetching bounties:', error);
         setBounties([]);

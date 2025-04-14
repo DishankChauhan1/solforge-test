@@ -8,20 +8,21 @@ import { cn } from '@/lib/utils';
 const tabs = [
   { name: 'Available Bounties', href: '/dashboard/available-bounties' },
   { name: 'My Submissions', href: '/dashboard/my-submissions' },
-  { name: 'My Bounties', href: '/dashboard/my-bounties', maintainerOnly: true },
-  { name: 'Review Submissions', href: '/dashboard/review', maintainerOnly: true },
+  { name: 'My Bounties', href: '/dashboard/my-bounties', creatorOnly: true },
+  { name: 'Review Submissions', href: '/dashboard/review', creatorOnly: true },
+  { name: 'Profile', href: '/profile' },
 ];
 
 export function DashboardTabs() {
   const pathname = usePathname();
   const { user } = useAuth();
-  const isMaintainer = user?.isMaintainer;
+  const isCreator = user?.role === 'creator';
 
   return (
     <div className="border-b border-gray-200">
       <nav className="-mb-px flex space-x-8" aria-label="Tabs">
         {tabs.map((tab) => {
-          if (tab.maintainerOnly && !isMaintainer) return null;
+          if (tab.creatorOnly && !isCreator) return null;
           
           const isActive = pathname === tab.href;
           

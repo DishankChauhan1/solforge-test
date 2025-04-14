@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getBounties } from '@/lib/firebase';
+import { getAllBountiesFunction } from '@/lib/firebase';
 import { IBounty } from '@/types/bounty';
 import { BountyCard } from '@/components/bounty/BountyCard';
 
@@ -12,10 +12,12 @@ export default function AvailableBounties() {
   useEffect(() => {
     async function fetchBounties() {
       try {
-        const openBounties = await getBounties({ status: 'open' });
-        setBounties(openBounties);
+        const getAllBounties = getAllBountiesFunction();
+        const { data } = await getAllBounties();
+        setBounties(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error('Error fetching bounties:', error);
+        setBounties([]);
       } finally {
         setLoading(false);
       }

@@ -2,7 +2,7 @@
 
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth, Auth, browserLocalPersistence, setPersistence } from 'firebase/auth';
-import { getFunctions, Functions, httpsCallable } from 'firebase/functions';
+import { getFunctions, Functions, httpsCallable, HttpsCallable } from 'firebase/functions';
 import { 
   getFirestore, 
   Firestore, 
@@ -24,6 +24,7 @@ import {
 } from 'firebase/firestore';
 import { IBounty } from '@/types/bounty';
 import { ISubmission, SubmissionStatus } from '@/types/submission';
+import { UserRole } from '@/types/user';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -95,7 +96,7 @@ export function getFirebaseFirestore() {
 export function getFirebaseFunctions() {
   initializeFirebase();
   if (!functions) {
-    functions = getFunctions(app); // Try to initialize again if not available
+    functions = getFunctions(app, 'us-central1'); // Set region explicitly
   }
   return functions;
 }
@@ -223,7 +224,10 @@ function getMockBounties(status?: string): IBounty[] {
       createdAt: now,
       creatorId: 'user1',
       updatedAt: now,
-      createdBy: undefined
+      issueHash: '123',
+      creatorWallet: 'mock-wallet-1',
+      locked: false,
+      deadline: now
     },
     {
       id: '2',
@@ -237,7 +241,10 @@ function getMockBounties(status?: string): IBounty[] {
       createdAt: now,
       creatorId: 'user2',
       updatedAt: now,
-      createdBy: undefined
+      issueHash: '456',
+      creatorWallet: 'mock-wallet-2',
+      locked: false,
+      deadline: now
     },
   ];
   
@@ -368,6 +375,33 @@ export async function updateSubmissionStatus({
   }
 }
 
+// Helper function to update user profile
+export async function updateUserProfile(
+  userId: string,
+  profileData: {
+    bio?: string;
+    website?: string;
+    twitter?: string;
+    discord?: string;
+    role?: UserRole;
+  }
+): Promise<void> {
+  if (!db) {
+    throw new Error('Firestore is not initialized');
+  }
+
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      ...profileData,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    throw error;
+  }
+}
+
 // Export the initialized services
 export { app, db, functions };
 
@@ -375,8 +409,38 @@ export { app, db, functions };
 export type { Functions };
 
 // Export Firebase Functions
-export const createBountyFunction = httpsCallable(functions!, 'createBounty');
-export const claimBountyFunction = httpsCallable(functions!, 'claimBounty');
-export const verifyPRFunction = httpsCallable(functions!, 'verifyPR');
-export const getAllBountiesFunction = httpsCallable(functions!, 'getAllBounties');
-export const getBountyByIdFunction = httpsCallable(functions!, 'getBountyById'); 
+export const createBountyFunction = (): HttpsCallable<any, any> => {
+  const functions = getFirebaseFunctions();
+  return httpsCallable(functions, 'createBountyHandler');
+};
+
+interface ClaimBountyData {
+  bountyId: string;
+  prUrl: string;
+  claimerId: string;
+  claimerWallet: string;
+  txHash: string;
+}
+
+export const claimBountyFunction = () => {
+  const functions = getFirebaseFunctions();
+  return httpsCallable<ClaimBountyData, { success: boolean }>(
+    functions,
+    'claimBounty'
+  );
+};
+
+export const verifyPRFunction = (): HttpsCallable<any, any> => {
+  const functions = getFirebaseFunctions();
+  return httpsCallable(functions, 'verifyPR');
+};
+
+export const getAllBountiesFunction = (): HttpsCallable<any, any> => {
+  const functions = getFirebaseFunctions();
+  return httpsCallable(functions, 'getAllBounties');
+};
+
+export const getBountyByIdFunction = (): HttpsCallable<any, any> => {
+  const functions = getFirebaseFunctions();
+  return httpsCallable(functions, 'getBountyById');
+}; 

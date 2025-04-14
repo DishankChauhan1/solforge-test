@@ -82,6 +82,8 @@ export const createBounty = async (data: {
   description: string;
   amount: number;
   tokenMint?: string;
+  issueUrl: string;
+  repositoryUrl: string;
   createdBy: string;
   status: 'open';
 }): Promise<Bounty> => {

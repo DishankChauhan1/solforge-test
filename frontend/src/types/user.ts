@@ -1,12 +1,17 @@
 import { Timestamp, FieldValue } from 'firebase/firestore';
 
+export type UserRole = 'creator' | 'contributor';
+
 export interface IGithubProfile {
   login: string;
   name: string;
   avatar_url: string;
+  bio?: string;
+  public_repos?: number;
+  followers?: number;
+  following?: number;
+  html_url: string;
 }
-
-export type UserRole = 'creator' | 'contributor';
 
 export interface IUser {
   uid: string;
@@ -19,5 +24,11 @@ export interface IUser {
   githubUsername?: string;
   walletAddress?: string;
   githubProfile?: IGithubProfile;
-  isMaintainer?: boolean;
+  totalBountiesCreated?: number;
+  totalBountiesClaimed?: number;
+  reputation?: number;
+  bio?: string;
+  website?: string;
+  twitter?: string;
+  discord?: string;
 } 

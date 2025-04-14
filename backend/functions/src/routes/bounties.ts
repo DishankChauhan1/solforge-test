@@ -1,4 +1,4 @@
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onCall, HttpsError, CallableOptions } from 'firebase-functions/v2/https';
 import { getBounty, createBounty, claimBounty, listBounties } from '../services/firestore';
 
 interface CreateBountyData {
@@ -6,6 +6,8 @@ interface CreateBountyData {
   description: string;
   amount: number;
   tokenMint?: string;
+  issueUrl: string;
+  repositoryUrl: string;
 }
 
 interface BountyActionData {
@@ -13,8 +15,15 @@ interface BountyActionData {
   prLink?: string;
 }
 
+const functionConfig: CallableOptions = {
+  enforceAppCheck: false,
+  cors: ['http://localhost:3000', 'https://coingate-3b632.web.app', 'https://coingate-3b632.firebaseapp.com'],
+  maxInstances: 10,
+  region: 'us-central1'
+};
+
 // Get all bounties
-export const getAllBounties = onCall(async (request) => {
+export const getAllBounties = onCall(functionConfig, async (request) => {
   try {
     const bounties = await listBounties();
     return bounties;
@@ -25,7 +34,7 @@ export const getAllBounties = onCall(async (request) => {
 });
 
 // Get bounty by ID
-export const getBountyById = onCall(async (request) => {
+export const getBountyById = onCall(functionConfig, async (request) => {
   try {
     const data = request.data as BountyActionData;
     const { bountyId } = data;
@@ -46,7 +55,7 @@ export const getBountyById = onCall(async (request) => {
 });
 
 // Create new bounty
-export const createBountyHandler = onCall(async (request) => {
+export const createBountyHandler = onCall(functionConfig, async (request) => {
   if (!request.auth) {
     throw new HttpsError(
       'unauthenticated',
@@ -55,9 +64,9 @@ export const createBountyHandler = onCall(async (request) => {
   }
 
   const data = request.data as CreateBountyData;
-  const { title, description, amount, tokenMint } = data;
+  const { title, description, amount, tokenMint, issueUrl, repositoryUrl } = data;
 
-  if (!title || !description || !amount) {
+  if (!title || !description || !amount || !issueUrl || !repositoryUrl) {
     throw new HttpsError(
       'invalid-argument',
       'Missing required fields'
@@ -70,6 +79,8 @@ export const createBountyHandler = onCall(async (request) => {
       description,
       amount,
       tokenMint,
+      issueUrl,
+      repositoryUrl,
       createdBy: request.auth.uid,
       status: 'open'
     });
@@ -85,7 +96,7 @@ export const createBountyHandler = onCall(async (request) => {
 });
 
 // Claim a bounty
-export const claimBountyHandler = onCall(async (request) => {
+export const claimBountyHandler = onCall(functionConfig, async (request) => {
   if (!request.auth) {
     throw new HttpsError(
       'unauthenticated',
@@ -131,7 +142,7 @@ export const claimBountyHandler = onCall(async (request) => {
   }
 });
 
-export const verifyPR = onCall((request) => {
+export const verifyPR = onCall(functionConfig, (request) => {
   if (!request.auth) {
     throw new HttpsError(
       'unauthenticated',
