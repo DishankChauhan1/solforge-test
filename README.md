@@ -11,7 +11,7 @@ A decentralized bounty platform built on Solana, allowing developers to create, 
 - Solana wallet integration for payments
 - Real-time updates using Firebase
 
-## Tech Stack
+## Tech Stack used
 
 - Frontend: Next.js 14 with TypeScript
 - Authentication: Firebase Auth
