@@ -18,6 +18,35 @@ use crate::{
     state::{Bounty, BountyStatus},
 };
 
+use std::str::FromStr;
+
+pub const WEBHOOK_AUTH_SEED: &[u8] = b"webhook_auth";
+
+pub struct WebhookAuthority {
+    pub authority: Pubkey,
+    pub is_active: bool,
+    pub added_at: i64,
+    pub name: String,
+}
+
+impl WebhookAuthority {
+    pub const LEN: usize = 32 + 1 + 8 + 64;
+    
+    pub fn new(authority: Pubkey, name: String) -> Self {
+        let clock = Clock::get().unwrap();
+        Self {
+            authority,
+            is_active: true,
+            added_at: clock.unix_timestamp,
+            name,
+        }
+    }
+    
+    pub fn is_valid(&self) -> bool {
+        self.is_active
+    }
+}
+
 pub struct Processor;
 
 impl Processor {
@@ -26,7 +55,7 @@ impl Processor {
         accounts: &[AccountInfo],
         instruction_data: &[u8],
     ) -> ProgramResult {
-        let instruction = BountyInstruction::unpack(instruction_data)?;
+        let instruction = BountyInstruction::try_from_slice(instruction_data)?;
 
         match instruction {
             BountyInstruction::CreateSolBounty {
@@ -71,9 +100,9 @@ impl Processor {
                     token_mint,
                 )
             }
-            BountyInstruction::LockBounty { bounty_pubkey } => {
+            BountyInstruction::LockBounty { bounty_pubkey, pr_url } => {
                 msg!("Instruction: Lock Bounty");
-                Self::process_lock_bounty(program_id, accounts, bounty_pubkey)
+                Self::process_lock_bounty(program_id, accounts, bounty_pubkey, pr_url)
             }
             BountyInstruction::ClaimBounty { bounty_pubkey } => {
                 msg!("Instruction: Claim Bounty");
@@ -86,6 +115,10 @@ impl Processor {
             BountyInstruction::CompleteBounty { bounty_pubkey } => {
                 msg!("Instruction: Complete Bounty");
                 Self::process_complete_bounty(program_id, accounts, bounty_pubkey)
+            }
+            BountyInstruction::AutoCompleteBounty { bounty_pubkey, pr_url } => {
+                msg!("Instruction: Auto Complete Bounty");
+                Self::process_auto_complete_bounty(program_id, accounts, bounty_pubkey, pr_url)
             }
         }
     }
@@ -267,6 +300,7 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         bounty_pubkey: Pubkey,
+        pr_url: String,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
         let claimant_info = next_account_info(account_info_iter)?;
@@ -284,10 +318,17 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
 
+        // Validate PR URL is not empty
+        if pr_url.is_empty() {
+            msg!("Error: PR URL cannot be empty");
+            return Err(ProgramError::InvalidArgument);
+        }
+
         let mut bounty = Bounty::try_from_slice(&bounty_info.data.borrow())?;
-        bounty.lock(*claimant_info.key, "".to_string())?;
+        bounty.lock(*claimant_info.key, pr_url.clone())?;
         bounty.serialize(&mut *bounty_info.data.borrow_mut())?;
 
+        msg!("Bounty locked with PR URL: {}", pr_url);
         Ok(())
     }
 
@@ -462,6 +503,306 @@ impl Processor {
 
         bounty.serialize(&mut *bounty_info.data.borrow_mut())?;
 
+        Ok(())
+    }
+
+    pub fn process_auto_complete_bounty(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        bounty_pubkey: Pubkey,
+        pr_url: String,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let webhook_authority_info = next_account_info(account_info_iter)?;
+        let authority_record_info = next_account_info(account_info_iter)?;
+        let bounty_info = next_account_info(account_info_iter)?;
+        let reward_account_info = next_account_info(account_info_iter)?;
+        
+        // Verify webhook authority is a signer
+        if !webhook_authority_info.is_signer {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        
+        // Verify authority account's PDA
+        let (expected_authority_address, _) = find_webhook_authority_address(
+            program_id, 
+            webhook_authority_info.key
+        );
+        
+        if expected_authority_address != *authority_record_info.key {
+            msg!("Authority record account doesn't match PDA");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // Verify the authority record is owned by this program
+        if authority_record_info.owner != program_id {
+            return Err(ProgramError::IncorrectProgramId);
+        }
+        
+        // Deserialize and verify the authority
+        let authority_record = WebhookAuthority::try_from_slice(&authority_record_info.data.borrow())?;
+        
+        if !authority_record.is_valid() {
+            msg!("Webhook authority is not active");
+            return Err(ProgramError::InvalidAccountData);
+        }
+        
+        if authority_record.authority != *webhook_authority_info.key {
+            msg!("Authority mismatch");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // Validate the bounty account
+        if bounty_info.owner != program_id {
+            return Err(ProgramError::IncorrectProgramId);
+        }
+
+        if *bounty_info.key != bounty_pubkey {
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        // Read and validate the bounty
+        let mut bounty = Bounty::try_from_slice(&bounty_info.data.borrow())?;
+        
+        // Verify the PR URL matches
+        if bounty.pr_url.as_ref() != Some(&pr_url) {
+            msg!("PR URL mismatch: expected {:?}, got {}", bounty.pr_url, pr_url);
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // Verify the bounty is in the correct state (Locked or Claimed)
+        if bounty.state != BountyStatus::Locked && bounty.state != BountyStatus::Claimed {
+            msg!("Invalid bounty state: {:?}", bounty.state);
+            return Err(BountyError::InvalidBountyState.into());
+        }
+        
+        // Verify there is a claimant
+        let claimant = match bounty.claimant {
+            Some(pubkey) => pubkey,
+            None => return Err(ProgramError::InvalidAccountData),
+        };
+        
+        // Ensure the reward account belongs to the claimant
+        if *reward_account_info.key != claimant {
+            msg!("Reward account doesn't match claimant");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // For token bounties, verify the token program account is provided
+        if bounty.token_mint.is_some() {
+            let token_program_info = next_account_info(account_info_iter)?;
+            if token_program_info.key != &spl_token::id() {
+                return Err(ProgramError::IncorrectProgramId);
+            }
+        }
+        
+        // Complete the bounty
+        bounty.complete()?;
+        
+        // Process payment with fees
+        if bounty.token_mint.is_none() {
+            // Check if we need to handle fees
+            if bounty.fee_collector.is_some() && bounty.fee_percentage > 0 {
+                let fee_amount = bounty.calculate_fee();
+                let reward_amount = bounty.amount_after_fee();
+                
+                // If fee collector account is provided, transfer the fee
+                if let Some(fee_collector) = bounty.fee_collector {
+                    let fee_account_info = next_account_info(account_info_iter)?;
+                    
+                    // Verify fee account matches the one in the bounty
+                    if fee_account_info.key != &fee_collector {
+                        msg!("Fee collector account doesn't match bounty");
+                        return Err(ProgramError::InvalidArgument);
+                    }
+                    
+                    // Transfer fee to the fee collector
+                    **fee_account_info.lamports.borrow_mut() = fee_account_info.lamports()
+                        .checked_add(fee_amount)
+                        .ok_or(BountyError::Overflow)?;
+                    
+                    msg!("Fee of {} lamports paid to fee collector", fee_amount);
+                }
+                
+                // Transfer reward amount to claimant
+                **reward_account_info.lamports.borrow_mut() = reward_account_info.lamports()
+                    .checked_add(reward_amount)
+                    .ok_or(BountyError::Overflow)?;
+                
+                // Reduce the bounty account's lamports
+                **bounty_info.lamports.borrow_mut() = bounty_info.lamports()
+                    .checked_sub(bounty.amount)
+                    .ok_or(BountyError::Overflow)?;
+                
+                msg!("Reward of {} lamports paid to claimer", reward_amount);
+            } else {
+                // No fee, transfer the full amount
+                **reward_account_info.lamports.borrow_mut() = reward_account_info.lamports()
+                    .checked_add(bounty.amount)
+                    .ok_or(BountyError::Overflow)?;
+                **bounty_info.lamports.borrow_mut() = bounty_info.lamports()
+                    .checked_sub(bounty.amount)
+                    .ok_or(BountyError::Overflow)?;
+            }
+        } else {
+            // Handle token transfers with fees for SPL tokens
+            let token_program_info = next_account_info(account_info_iter)?;
+            let bounty_token_account_info = next_account_info(account_info_iter)?;
+            let claimant_token_account_info = next_account_info(account_info_iter)?;
+            
+            // Create PDA for token transfers
+            let (pda, bump_seed) = Pubkey::find_program_address(
+                &[b"bounty", bounty_info.key.as_ref()],
+                program_id,
+            );
+            
+            // Check if we need to handle fees
+            if bounty.fee_collector.is_some() && bounty.fee_percentage > 0 {
+                let fee_amount = bounty.calculate_fee();
+                let reward_amount = bounty.amount_after_fee();
+                
+                // If fee collector account is provided, transfer the fee
+                if let Some(fee_collector) = bounty.fee_collector {
+                    let fee_token_account_info = next_account_info(account_info_iter)?;
+                    
+                    // Transfer fee to the fee collector's token account
+                    invoke_signed(
+                        &token_instruction::transfer(
+                            token_program_info.key,
+                            bounty_token_account_info.key,
+                            fee_token_account_info.key,
+                            &pda,
+                            &[],
+                            fee_amount,
+                        )?,
+                        &[
+                            bounty_token_account_info.clone(),
+                            fee_token_account_info.clone(),
+                            webhook_authority_info.clone(),
+                            token_program_info.clone(),
+                        ],
+                        &[&[b"bounty", bounty_info.key.as_ref(), &[bump_seed]]],
+                    )?;
+                    
+                    msg!("Fee of {} tokens paid to fee collector", fee_amount);
+                }
+                
+                // Transfer reward amount to claimant
+                invoke_signed(
+                    &token_instruction::transfer(
+                        token_program_info.key,
+                        bounty_token_account_info.key,
+                        claimant_token_account_info.key,
+                        &pda,
+                        &[],
+                        reward_amount,
+                    )?,
+                    &[
+                        bounty_token_account_info.clone(),
+                        claimant_token_account_info.clone(),
+                        webhook_authority_info.clone(),
+                        token_program_info.clone(),
+                    ],
+                    &[&[b"bounty", bounty_info.key.as_ref(), &[bump_seed]]],
+                )?;
+                
+                msg!("Reward of {} tokens paid to claimer", reward_amount);
+            } else {
+                // No fee, transfer the full amount
+                invoke_signed(
+                    &token_instruction::transfer(
+                        token_program_info.key,
+                        bounty_token_account_info.key,
+                        claimant_token_account_info.key,
+                        &pda,
+                        &[],
+                        bounty.amount,
+                    )?,
+                    &[
+                        bounty_token_account_info.clone(),
+                        claimant_token_account_info.clone(),
+                        webhook_authority_info.clone(),
+                        token_program_info.clone(),
+                    ],
+                    &[&[b"bounty", bounty_info.key.as_ref(), &[bump_seed]]],
+                )?;
+            }
+        }
+        
+        // Update bounty state
+        bounty.serialize(&mut *bounty_info.data.borrow_mut())?;
+        
+        msg!("Auto-completed bounty for PR: {}", pr_url);
+        Ok(())
+    }
+
+    pub fn find_webhook_authority_address(
+        program_id: &Pubkey,
+        authority: &Pubkey,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[
+                WEBHOOK_AUTH_SEED,
+                authority.as_ref(),
+            ],
+            program_id
+        )
+    }
+
+    pub fn process_add_webhook_authority(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        authority_to_add: Pubkey,
+        name: String,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let admin_info = next_account_info(account_info_iter)?;
+        let authority_account_info = next_account_info(account_info_iter)?;
+        let system_program_info = next_account_info(account_info_iter)?;
+        
+        // Hardcoded admin key for bootstrapping (in production, this would be governed by DAO)
+        let admin_key = Pubkey::from_str("Tge7QM2HroSQEBNXTyacb5YVZRJjkRmC8Qh8QvhPuXM").unwrap();
+        
+        // Verify the admin is a signer and the correct key
+        if !admin_info.is_signer || admin_info.key != &admin_key {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        
+        // Calculate the authority PDA
+        let (authority_pda, bump_seed) = find_webhook_authority_address(program_id, &authority_to_add);
+        
+        // Verify the authority account matches the expected PDA
+        if authority_pda != *authority_account_info.key {
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // Calculate account size and rent
+        let space = WebhookAuthority::LEN;
+        let rent = Rent::get()?;
+        let rent_lamports = rent.minimum_balance(space);
+        
+        // Create the authority account
+        invoke_signed(
+            &system_instruction::create_account(
+                admin_info.key,
+                authority_account_info.key,
+                rent_lamports,
+                space as u64,
+                program_id,
+            ),
+            &[admin_info.clone(), authority_account_info.clone(), system_program_info.clone()],
+            &[&[
+                WEBHOOK_AUTH_SEED,
+                authority_to_add.as_ref(),
+                &[bump_seed],
+            ]],
+        )?;
+        
+        // Initialize the authority account
+        let authority = WebhookAuthority::new(authority_to_add, name);
+        authority.serialize(&mut *authority_account_info.data.borrow_mut())?;
+        
+        msg!("Webhook authority added: {}", authority_to_add);
         Ok(())
     }
 } 

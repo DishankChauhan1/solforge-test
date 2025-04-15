@@ -79,13 +79,32 @@ const claimBounty = async (bountyAccountPublicKey, claimantPublicKey) => {
     }
 };
 exports.claimBounty = claimBounty;
-const completeBounty = async (bountyAccountPublicKey, claimantPublicKey) => {
+const completeBounty = async (bountyAccountPublicKey, claimantPublicKey, prUrl = '') => {
     try {
         const adminWallet = loadAdminWallet();
         const bountyPubkey = new web3_js_1.PublicKey(bountyAccountPublicKey);
         const claimantPubkey = new web3_js_1.PublicKey(claimantPublicKey);
-        // Create instruction data
-        const data = Buffer.from([2]); // CompleteBounty instruction
+        // Choose the instruction based on whether we have a PR URL
+        // 2 = CompleteBounty instruction, 6 = AutoCompleteBounty instruction
+        const instructionIndex = prUrl ? 6 : 2;
+        // Create instruction data with or without PR URL
+        let data;
+        if (prUrl) {
+            // For AutoCompleteBounty, include the PR URL
+            const prUrlBuffer = Buffer.from(prUrl);
+            data = Buffer.alloc(1 + 4 + prUrlBuffer.length);
+            // Write instruction index
+            data.writeUInt8(instructionIndex, 0);
+            // Write PR URL length and data
+            data.writeUInt32LE(prUrlBuffer.length, 1);
+            prUrlBuffer.copy(data, 5);
+            console.log(`Using AutoCompleteBounty instruction with PR URL: ${prUrl}`);
+        }
+        else {
+            // For regular CompleteBounty, just use the instruction index
+            data = Buffer.from([instructionIndex]);
+            console.log('Using standard CompleteBounty instruction');
+        }
         // Create instruction
         const instruction = new anchor_1.web3.TransactionInstruction({
             keys: [
@@ -99,6 +118,7 @@ const completeBounty = async (bountyAccountPublicKey, claimantPublicKey) => {
         // Create and send transaction
         const transaction = new web3_js_1.Transaction().add(instruction);
         const signature = await anchor_1.web3.sendAndConfirmTransaction(connection, transaction, [adminWallet]);
+        console.log(`Bounty completion transaction sent. Signature: ${signature}`);
         return { signature };
     }
     catch (error) {

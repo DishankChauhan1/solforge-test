@@ -9,6 +9,28 @@ export type BountyStatus =
   | 'cancelled'
   | 'claimed';
 
+export type PaymentStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed';
+
+export interface PaymentInfo {
+  status: PaymentStatus;
+  createdAt?: string;
+  updatedAt?: string;
+  processingStartedAt?: string;
+  completedAt?: string;
+  failedAt?: string;
+  transactionSignature?: string;
+  attempt?: number;
+  lastError?: string;
+  lastErrorAt?: string;
+  nextRetryAt?: string;
+  notificationSent?: boolean;
+  notificationSentAt?: string;
+}
+
 export interface Bounty {
   id: string;
   title: string;
@@ -27,4 +49,8 @@ export interface Bounty {
   claimedAt?: Timestamp;
   claimPR?: string;
   statusMetadata?: Record<string, any>;
+  // GitHub username of the PR submitter
+  prSubmitterGithubUsername?: string;
+  // Payment tracking information
+  payment?: PaymentInfo;
 } 

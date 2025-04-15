@@ -10,9 +10,16 @@ import { claimBountyFunction } from '@/lib/firebase';
 import { IBounty } from '@/types/bounty';
 import { Transaction } from '@solana/web3.js';
 import { claimBountyInstruction } from '@/lib/solana/instructions';
+import { PaymentStatus } from '@/components/payment/PaymentStatus';
 
 interface ClaimBountyFormProps {
   bounty: IBounty;
+}
+
+interface ClaimBountyResult {
+  success: boolean;
+  error?: string;
+  txHash?: string;
 }
 
 export function ClaimBountyForm({ bounty }: ClaimBountyFormProps) {
@@ -26,6 +33,9 @@ export function ClaimBountyForm({ bounty }: ClaimBountyFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [validationStatus, setValidationStatus] = useState<string | null>(null);
   const [txStatus, setTxStatus] = useState<'pending' | 'confirming' | 'confirmed' | null>(null);
+  const [automatedPayment, setAutomatedPayment] = useState(true);
+  const [automatedPaymentStatus, setAutomatedPaymentStatus] = useState<'pending' | 'processing' | 'completed' | 'failed' | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +56,53 @@ export function ClaimBountyForm({ bounty }: ClaimBountyFormProps) {
 
       setValidationStatus('Creating claim transaction...');
       setTxStatus('pending');
-
+      
+      // Check if we should use automated payments
+      if (automatedPayment) {
+        setAutomatedPaymentStatus('pending');
+        setValidationStatus('Registering for automated payment...');
+        
+        // Call Firebase Function to register for automated payment
+        const registerForAutomatedPayment = claimBountyFunction();
+        try {
+          const response = await registerForAutomatedPayment({
+            bountyId: bounty.id,
+            prUrl,
+            claimerId: user.uid,
+            claimerWallet: publicKey.toBase58(),
+            txHash: 'pending-auto-complete', // Marker for automated processing
+          });
+          
+          // Cast the response data to our expected type
+          const result = (response?.data || {}) as ClaimBountyResult;
+          
+          if (result.success) {
+            setAutomatedPaymentStatus('processing');
+            setValidationStatus('Registration successful! Payment will be processed automatically when the PR is merged.');
+            router.push('/dashboard/claimed-bounties');
+          } else {
+            setAutomatedPaymentStatus('failed');
+            setPaymentError(result.error || 'Failed to register for automated payment');
+            // Fall back to manual claiming
+            setAutomatedPayment(false);
+          }
+        } catch (error: any) {
+          console.error('Error registering for automated payment:', error);
+          setAutomatedPaymentStatus('failed');
+          setPaymentError(error?.message || 'Failed to register for automated payment');
+          // Fall back to manual claiming
+          setAutomatedPayment(false);
+        }
+        
+        // If we're not falling back to manual claiming, finish here
+        if (automatedPayment) {
+          setLoading(false);
+          setValidationStatus(null);
+          return;
+        }
+      }
+      
+      // Manual payment flow (existing code)
       // Create and send transaction
       const transaction = new Transaction();
       const claimInstruction = await claimBountyInstruction({
@@ -104,6 +160,7 @@ export function ClaimBountyForm({ bounty }: ClaimBountyFormProps) {
       console.error('Error claiming bounty:', err);
       setError(err?.message || 'Failed to claim bounty');
       setTxStatus(null);
+      setAutomatedPaymentStatus('failed');
     } finally {
       setLoading(false);
       setValidationStatus(null);
@@ -139,6 +196,39 @@ export function ClaimBountyForm({ bounty }: ClaimBountyFormProps) {
           {txStatus === 'confirming' && 'Confirming transaction...'}
           {txStatus === 'confirmed' && 'Transaction confirmed! Updating bounty status...'}
         </div>
+      )}
+
+      <div className="mt-4">
+        <p className="text-sm font-medium text-gray-700 mb-2">Payment Method</p>
+        <div className="flex items-center space-x-4">
+          <label className="inline-flex items-center">
+            <input
+              type="radio"
+              className="form-radio h-4 w-4 text-indigo-600"
+              name="paymentMethod"
+              checked={automatedPayment}
+              onChange={() => setAutomatedPayment(true)}
+            />
+            <span className="ml-2 text-sm text-gray-700">Automatic (when PR is merged)</span>
+          </label>
+          <label className="inline-flex items-center">
+            <input
+              type="radio"
+              className="form-radio h-4 w-4 text-indigo-600"
+              name="paymentMethod"
+              checked={!automatedPayment}
+              onChange={() => setAutomatedPayment(false)}
+            />
+            <span className="ml-2 text-sm text-gray-700">Manual</span>
+          </label>
+        </div>
+      </div>
+
+      {automatedPaymentStatus && (
+        <PaymentStatus
+          status={automatedPaymentStatus}
+          errorMessage={paymentError || undefined}
+        />
       )}
 
       <div>

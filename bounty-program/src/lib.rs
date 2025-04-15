@@ -39,8 +39,8 @@ pub fn process_instruction(
         BountyInstruction::CreateTokenBounty { amount, description, issue_hash, issue_url, repository_url, deadline, token_mint } => {
             processor::Processor::process_create_token_bounty(program_id, accounts, amount, description, issue_hash, issue_url, repository_url, deadline, token_mint)
         }
-        BountyInstruction::LockBounty { bounty_pubkey } => {
-            processor::Processor::process_lock_bounty(program_id, accounts, bounty_pubkey)
+        BountyInstruction::LockBounty { bounty_pubkey, pr_url } => {
+            processor::Processor::process_lock_bounty(program_id, accounts, bounty_pubkey, pr_url)
         }
         BountyInstruction::ClaimBounty { bounty_pubkey } => {
             processor::Processor::process_claim_bounty(program_id, accounts, bounty_pubkey)
@@ -50,6 +50,12 @@ pub fn process_instruction(
         }
         BountyInstruction::CompleteBounty { bounty_pubkey } => {
             processor::Processor::process_complete_bounty(program_id, accounts, bounty_pubkey)
+        }
+        BountyInstruction::AutoCompleteBounty { bounty_pubkey, pr_url } => {
+            processor::Processor::process_auto_complete_bounty(program_id, accounts, bounty_pubkey, pr_url)
+        }
+        BountyInstruction::AddWebhookAuthority { authority, name } => {
+            processor::Processor::process_add_webhook_authority(program_id, accounts, authority, name)
         }
     }
 }

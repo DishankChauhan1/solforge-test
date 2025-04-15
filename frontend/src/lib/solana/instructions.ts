@@ -336,4 +336,52 @@ export async function sendAndConfirmClaimTransaction(
       'SEND_TRANSACTION_FAILED'
     );
   }
+}
+
+export interface LockBountyParams {
+  bountyPubkey: string;
+  prUrl: string;
+  claimer: PublicKey;
+}
+
+export async function lockBountyWithPR({
+  bountyPubkey, 
+  prUrl,
+  claimer
+}: LockBountyParams): Promise<TransactionInstruction> {
+  const program = await getBountyProgram();
+  const bountyPubkeyObj = new PublicKey(bountyPubkey);
+  
+  // Create a buffer for the instruction data
+  const dataLayout = {
+    instruction: 2, // Index for LockBounty
+    bountyPubkey: bountyPubkeyObj.toBuffer(),
+    prUrl: Buffer.from(prUrl),
+  };
+  
+  // Encode the instruction data
+  const instructionData = Buffer.alloc(4 + 32 + 4 + prUrl.length);
+  let offset = 0;
+  
+  // Instruction index
+  instructionData.writeUInt32LE(dataLayout.instruction, offset);
+  offset += 4;
+  
+  // Bounty pubkey
+  dataLayout.bountyPubkey.copy(instructionData, offset);
+  offset += 32;
+  
+  // PR URL length and data
+  instructionData.writeUInt32LE(prUrl.length, offset);
+  offset += 4;
+  Buffer.from(prUrl).copy(instructionData, offset);
+  
+  return new TransactionInstruction({
+    keys: [
+      { pubkey: claimer, isSigner: true, isWritable: true },
+      { pubkey: bountyPubkeyObj, isSigner: false, isWritable: true },
+    ],
+    programId: PROGRAM_ID,
+    data: instructionData,
+  });
 } 

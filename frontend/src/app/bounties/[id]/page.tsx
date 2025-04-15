@@ -10,6 +10,7 @@ import { getBountyById, claimCompletedBounty } from '@/lib/firebase';
 import { IBounty } from '@/types/bounty';
 import { formatCurrency } from '@/utils/currency';
 import { toast } from 'react-hot-toast';
+import { PaymentStatus } from '@/components/payment/PaymentStatus';
 
 export default function BountyPage() {
   const { id } = useParams();
@@ -232,6 +233,23 @@ export default function BountyPage() {
                   </div>
                 </dd>
               </div>
+              {bounty.status === 'completed' && bounty.payment && (
+                <div className="sm:col-span-2 mt-6 border-t border-gray-200 pt-6">
+                  <dt className="text-sm font-medium text-gray-500">Payment Information</dt>
+                  <dd className="mt-2">
+                    <PaymentStatus 
+                      status={bounty.payment.status}
+                      transactionSignature={bounty.payment.transactionSignature}
+                      completedAt={bounty.payment.completedAt}
+                      failedAt={bounty.payment.failedAt}
+                      errorMessage={bounty.payment.lastError}
+                      attempt={bounty.payment.attempt}
+                      amount={bounty.amount}
+                      currency={bounty.currency}
+                    />
+                  </dd>
+                </div>
+              )}
             </dl>
           </div>
           <div className="bg-gray-50 px-4 py-5 sm:px-6">

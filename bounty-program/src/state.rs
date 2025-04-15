@@ -24,6 +24,20 @@ pub enum BountyStatus {
     Cancelled,
 }
 
+/// Add a fee structure
+pub struct FeeConfig {
+    pub fee_collector: Pubkey,
+    pub fee_percentage: u8,  // Base points (1% = 100)
+}
+
+impl FeeConfig {
+    // Calculate fee amount
+    pub fn calculate_fee(&self, amount: u64) -> u64 {
+        let fee_decimal = self.fee_percentage as f64 / 10000.0;
+        (amount as f64 * fee_decimal) as u64
+    }
+}
+
 /// Bounty account structure that holds all information about a bounty
 ///
 /// This account is created as a PDA (Program Derived Address) based on the
@@ -78,11 +92,17 @@ pub struct Bounty {
     
     /// Timestamp when the bounty was created
     pub created_at: i64,
+    
+    /// New field for fee destination
+    pub fee_collector: Option<Pubkey>,
+    
+    /// Base points (1% = 100)
+    pub fee_percentage: u8,
 }
 
 impl Bounty {
     /// Size of the bounty account for space allocation
-    pub const LEN: usize = 32 + 8 + 256 + 32 + 256 + 256 + 8 + 1 + 33 + 33 + 256 + 9 + 9 + 9 + 8;
+    pub const LEN: usize = 32 + 8 + 256 + 32 + 256 + 256 + 8 + 1 + 33 + 33 + 256 + 9 + 9 + 9 + 8 + 33 + 1;
     
     /// Calculate the exact account size needed for a specific bounty
     ///
@@ -115,6 +135,18 @@ impl Bounty {
         fixed_size + string_size + 100 // Buffer for Borsh serialization
     }
 
+    /// Calculate fee amount for this bounty
+    pub fn calculate_fee(&self) -> u64 {
+        let fee_decimal = self.fee_percentage as f64 / 10000.0;
+        (self.amount as f64 * fee_decimal) as u64
+    }
+    
+    /// Calculate amount to be paid to claimant after fees
+    pub fn amount_after_fee(&self) -> u64 {
+        let fee = self.calculate_fee();
+        self.amount.saturating_sub(fee)
+    }
+
     /// Create a new SOL bounty
     ///
     /// Initializes a new bounty using SOL as the reward token
@@ -126,6 +158,8 @@ impl Bounty {
         issue_url: &str,
         repository_url: &str,
         deadline: i64,
+        fee_collector: Option<Pubkey>,
+        fee_percentage: u8,
     ) -> Self {
         let clock = Clock::get().unwrap();
         Self {
@@ -144,6 +178,8 @@ impl Bounty {
             claimed_at: None,
             completed_at: None,
             created_at: clock.unix_timestamp,
+            fee_collector,
+            fee_percentage,
         }
     }
 
@@ -159,6 +195,8 @@ impl Bounty {
         repository_url: &str,
         deadline: i64,
         token_mint: Pubkey,
+        fee_collector: Option<Pubkey>,
+        fee_percentage: u8,
     ) -> Self {
         let clock = Clock::get().unwrap();
         Self {
@@ -177,6 +215,8 @@ impl Bounty {
             claimed_at: None,
             completed_at: None,
             created_at: clock.unix_timestamp,
+            fee_collector,
+            fee_percentage,
         }
     }
 

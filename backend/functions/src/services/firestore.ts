@@ -249,4 +249,40 @@ export const updateBountyWithPR = async (bountyId: string, prUrl: string, github
   }
   
   await bountyRef.update(updateData);
+};
+
+/**
+ * Update payment information for a bounty
+ * This tracks payment status, transactions, and error handling
+ */
+export const updateBountyPayment = async (
+  bountyId: string,
+  paymentData: Record<string, any>
+): Promise<void> => {
+  const db = getDb();
+  const bountyRef = db.collection('bounties').doc(bountyId);
+  const now = admin.firestore.Timestamp.now();
+  
+  // Create payment tracking structure if it doesn't exist
+  const updateData = {
+    updatedAt: now,
+    payment: {
+      ...paymentData,
+      updatedAt: now
+    }
+  };
+  
+  await bountyRef.update(updateData);
+  
+  // Also update a separate payment history record for audit
+  const paymentHistoryRef = db.collection('payment_history').doc();
+  await paymentHistoryRef.set({
+    bountyId,
+    ...paymentData,
+    createdAt: now,
+    updatedAt: now
+  });
+  
+  // Log the payment update
+  console.log(`Updated payment information for bounty ${bountyId}:`, paymentData);
 }; 

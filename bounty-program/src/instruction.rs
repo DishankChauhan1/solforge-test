@@ -84,6 +84,7 @@ pub enum BountyInstruction {
     /// 1. `[writable]` The bounty account
     LockBounty {
         bounty_pubkey: Pubkey,
+        pr_url: String,
     },
 
     /// Claims a locked bounty
@@ -116,6 +117,30 @@ pub enum BountyInstruction {
     CompleteBounty {
         bounty_pubkey: Pubkey,
     },
+    
+    /// Automatically completes a bounty when a PR is merged
+    /// This can only be called by authorized GitHub webhook handlers
+    /// 
+    /// Accounts expected:
+    /// 0. `[signer]` The webhook authority (must be on allowlist)
+    /// 1. `[writable]` The bounty account
+    /// 2. `[writable]` The claimant's reward account (native SOL or token account)
+    /// 3. `[]` Token program (if token bounty)
+    AutoCompleteBounty {
+        bounty_pubkey: Pubkey,
+        pr_url: String,
+    },
+
+    /// Adds a new authorized webhook caller
+    /// 
+    /// Accounts expected:
+    /// 0. `[signer]` The admin authority (initially hardcoded)
+    /// 1. `[writable]` The authority account to create (PDA)
+    /// 2. `[]` System program
+    AddWebhookAuthority {
+        authority: Pubkey,
+        name: String,
+    },
 }
 
 impl BountyInstruction {
@@ -129,6 +154,8 @@ impl BountyInstruction {
         issue_url: String,
         repository_url: String,
         deadline: i64,
+        fee_collector: Option<Pubkey>,
+        fee_percentage: u8,
     ) -> Result<Instruction, ProgramError> {
         let data = Self::CreateSolBounty {
             amount,
@@ -147,6 +174,11 @@ impl BountyInstruction {
                 AccountMeta::new(*bounty_account, false),
                 AccountMeta::new_readonly(system_program::id(), false),
                 AccountMeta::new_readonly(rent::id(), false),
+                if let Some(fee_pubkey) = fee_collector {
+                    AccountMeta::new_readonly(fee_pubkey, false)
+                } else {
+                    AccountMeta::new_readonly(*creator, false)
+                },
             ],
             data,
         })
@@ -198,9 +230,11 @@ impl BountyInstruction {
         program_id: &Pubkey,
         claimant: &Pubkey,
         bounty_account: &Pubkey,
+        pr_url: String,
     ) -> Result<Instruction, ProgramError> {
         let data = Self::LockBounty {
             bounty_pubkey: *bounty_account,
+            pr_url,
         };
         let data = borsh::to_vec(&data)?;
         
@@ -286,6 +320,60 @@ impl BountyInstruction {
         Ok(Instruction {
             program_id: *program_id,
             accounts,
+            data,
+        })
+    }
+
+    pub fn auto_complete_bounty(
+        program_id: &Pubkey,
+        webhook_authority: &Pubkey,
+        bounty_account: &Pubkey,
+        reward_account: &Pubkey,
+        token_program: Option<&Pubkey>,
+        pr_url: String,
+    ) -> Result<Instruction, ProgramError> {
+        let data = Self::AutoCompleteBounty {
+            bounty_pubkey: *bounty_account,
+            pr_url,
+        };
+        let data = borsh::to_vec(&data)?;
+        
+        Ok(Instruction {
+            program_id: *program_id,
+            accounts: vec![
+                AccountMeta::new(*webhook_authority, true),
+                AccountMeta::new(*bounty_account, false),
+                AccountMeta::new(*reward_account, false),
+                if let Some(token_program) = token_program {
+                    AccountMeta::new_readonly(*token_program, false)
+                } else {
+                    AccountMeta::new_readonly(*webhook_authority, false)
+                },
+            ],
+            data,
+        })
+    }
+
+    pub fn add_webhook_authority(
+        program_id: &Pubkey,
+        admin: &Pubkey,
+        authority_account: &Pubkey,
+        authority_to_add: Pubkey,
+        name: String,
+    ) -> Result<Instruction, ProgramError> {
+        let data = Self::AddWebhookAuthority {
+            authority: authority_to_add,
+            name,
+        };
+        let data = borsh::to_vec(&data)?;
+        
+        Ok(Instruction {
+            program_id: *program_id,
+            accounts: vec![
+                AccountMeta::new(*admin, true),
+                AccountMeta::new(*authority_account, false),
+                AccountMeta::new_readonly(system_program::id(), false),
+            ],
             data,
         })
     }

@@ -4,6 +4,18 @@ import { ReactNode } from 'react';
 
 export type BountyStatus = 'open' | 'in_progress' | 'completed' | 'cancelled';
 export type BountyCurrency = 'SOL' | 'USDC';
+export type PaymentStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+export interface IPaymentInfo {
+  status: PaymentStatus;
+  attempt?: number;
+  transactionSignature?: string;
+  completedAt?: string;
+  failedAt?: string;
+  lastError?: string;
+  processingStartedAt?: string;
+  updatedAt?: string;
+}
 
 export interface IBounty {
   id: string;
@@ -25,6 +37,7 @@ export interface IBounty {
   claimedBy?: string;
   claimedAt?: Timestamp;
   prUrl?: string;
+  payment?: IPaymentInfo;
 }
 
 export interface IBountySubmission {

@@ -119,15 +119,38 @@ export const claimBounty = async (
 
 export const completeBounty = async (
   bountyAccountPublicKey: string,
-  claimantPublicKey: string
+  claimantPublicKey: string,
+  prUrl: string = ''
 ): Promise<{ signature: string }> => {
   try {
     const adminWallet = loadAdminWallet();
     const bountyPubkey = new PublicKey(bountyAccountPublicKey);
     const claimantPubkey = new PublicKey(claimantPublicKey);
 
-    // Create instruction data
-    const data = Buffer.from([2]); // CompleteBounty instruction
+    // Choose the instruction based on whether we have a PR URL
+    // 2 = CompleteBounty instruction, 6 = AutoCompleteBounty instruction
+    const instructionIndex = prUrl ? 6 : 2;
+    
+    // Create instruction data with or without PR URL
+    let data: Buffer;
+    if (prUrl) {
+      // For AutoCompleteBounty, include the PR URL
+      const prUrlBuffer = Buffer.from(prUrl);
+      data = Buffer.alloc(1 + 4 + prUrlBuffer.length);
+      
+      // Write instruction index
+      data.writeUInt8(instructionIndex, 0);
+      
+      // Write PR URL length and data
+      data.writeUInt32LE(prUrlBuffer.length, 1);
+      prUrlBuffer.copy(data, 5);
+      
+      console.log(`Using AutoCompleteBounty instruction with PR URL: ${prUrl}`);
+    } else {
+      // For regular CompleteBounty, just use the instruction index
+      data = Buffer.from([instructionIndex]);
+      console.log('Using standard CompleteBounty instruction');
+    }
 
     // Create instruction
     const instruction = new web3.TransactionInstruction({
@@ -148,6 +171,8 @@ export const completeBounty = async (
       [adminWallet]
     );
 
+    console.log(`Bounty completion transaction sent. Signature: ${signature}`);
+    
     return { signature };
   } catch (error) {
     console.error("Error completing bounty:", error);

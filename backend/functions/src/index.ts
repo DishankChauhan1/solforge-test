@@ -10,28 +10,25 @@
 import * as admin from 'firebase-admin';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { verifyPR, createBountyHandler, createBountyHandlerV2, claimBountyHandler, getAllBounties, getBountyById } from './routes/bounties';
-import * as path from 'path';
 import { githubWebhookHandler, webhookTest } from './routes/github-webhooks';
+import { githubAppWebhookHandler, githubAppWebhookTest } from './routes/github-app-webhooks';
+import { validateGitHubRepository, verifyPullRequestForBounty } from './routes/repository-validation';
+import { githubOAuthInitiate, githubOAuthCallback, refreshGithubToken, revokeGithubAccess } from './routes/auth-routes';
+
 
 // Set global options for all functions
 setGlobalOptions({
   maxInstances: 10,
 });
 
-// Initialize Firebase Admin with service account
-try {
-  // Try to load the service account file
-  const serviceAccountPath = path.join(__dirname, '..', 'service-account.json');
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccountPath),
-  });
-} catch (error) {
-  // Fallback to application default credentials
-  console.log('Failed to load service account, using application default credentials');
+// Initialize Firebase Admin if it hasn't been initialized already
+if (!admin.apps.length) {
   admin.initializeApp();
 }
 
 // Export the Cloud Functions
+
+// Legacy functions (maintained for backward compatibility)
 export {
   verifyPR,
   createBountyHandler,
@@ -41,6 +38,23 @@ export {
   getBountyById,
   githubWebhookHandler,
   webhookTest
+};
+
+// New GitHub App integration
+export {
+  // GitHub App webhook handlers
+  githubAppWebhookHandler,
+  githubAppWebhookTest,
+  
+  // Repository validation functions
+  validateGitHubRepository,
+  verifyPullRequestForBounty,
+  
+  // OAuth flow handlers
+  githubOAuthInitiate,
+  githubOAuthCallback,
+  refreshGithubToken,
+  revokeGithubAccess
 };
 
 // Start writing functions

@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateBountyWithPR = exports.getBountyByRepo = exports.getBountyByIssueUrl = exports.updateBountyStatus = exports.getBountyByPR = exports.approveBounty = exports.claimBounty = exports.listBounties = exports.createBounty = exports.getBounty = exports.getUser = exports.updateUser = exports.createUser = void 0;
+exports.updateBountyPayment = exports.updateBountyWithPR = exports.getBountyByRepo = exports.getBountyByIssueUrl = exports.updateBountyStatus = exports.getBountyByPR = exports.approveBounty = exports.claimBounty = exports.listBounties = exports.createBounty = exports.getBounty = exports.getUser = exports.updateUser = exports.createUser = void 0;
 const admin = __importStar(require("firebase-admin"));
 // Get Firestore instance
 const getDb = () => {
@@ -195,4 +195,25 @@ const updateBountyWithPR = async (bountyId, prUrl, githubUsername) => {
     await bountyRef.update(updateData);
 };
 exports.updateBountyWithPR = updateBountyWithPR;
+/**
+ * Update payment information for a bounty
+ * This tracks payment status, transactions, and error handling
+ */
+const updateBountyPayment = async (bountyId, paymentData) => {
+    const db = getDb();
+    const bountyRef = db.collection('bounties').doc(bountyId);
+    const now = admin.firestore.Timestamp.now();
+    // Create payment tracking structure if it doesn't exist
+    const updateData = {
+        updatedAt: now,
+        payment: Object.assign(Object.assign({}, paymentData), { updatedAt: now })
+    };
+    await bountyRef.update(updateData);
+    // Also update a separate payment history record for audit
+    const paymentHistoryRef = db.collection('payment_history').doc();
+    await paymentHistoryRef.set(Object.assign(Object.assign({ bountyId }, paymentData), { createdAt: now, updatedAt: now }));
+    // Log the payment update
+    console.log(`Updated payment information for bounty ${bountyId}:`, paymentData);
+};
+exports.updateBountyPayment = updateBountyPayment;
 //# sourceMappingURL=firestore.js.map
