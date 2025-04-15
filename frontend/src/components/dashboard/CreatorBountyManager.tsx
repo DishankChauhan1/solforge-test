@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthProvider';
+import { IBounty, BountyStatus } from '@/types/bounty';
 import { getBounties, updateBountyStatus } from '@/lib/firebase';
-import { IBounty } from '@/types/bounty';
 import { BountyCard } from '@/components/bounty/BountyCard';
 
 type BountyFilter = 'all' | 'open' | 'in_progress' | 'completed' | 'cancelled';
@@ -18,31 +18,30 @@ export function CreatorBountyManager() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) return;
-
-    const fetchBounties = async () => {
-      try {
-        setLoading(true);
-        const fetchedBounties = await getBounties();
-        // Filter bounties created by the current user
-        const creatorBounties = fetchedBounties.filter(b => b.creatorId === user.uid);
-        setBounties(creatorBounties);
-      } catch (err) {
-        setError('Failed to fetch bounties');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchBounties();
+    if (user?.uid) {
+      fetchBounties();
+    }
   }, [user]);
 
+  const fetchBounties = async () => {
+    if (!user) return;
+    
+    try {
+      setLoading(true);
+      const userBounties = await getBounties();
+      // Filter just the bounties created by this user
+      setBounties(userBounties.filter(b => b.creatorId === user.uid));
+    } catch (error) {
+      console.error('Error fetching bounties:', error);
+      setError('Failed to load your bounties');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Filter and sort bounties
   const filteredBounties = bounties
-    .filter(bounty => {
-      if (filter === 'all') return true;
-      return bounty.status === filter;
-    })
+    .filter(bounty => filter === 'all' || bounty.status === filter)
     .sort((a, b) => {
       switch (sortBy) {
         case 'newest':
@@ -60,9 +59,11 @@ export function CreatorBountyManager() {
 
   const handleStatusChange = async (bountyId: string, newStatus: string) => {
     try {
-      await updateBountyStatus(bountyId, newStatus);
+      // Cast the string to BountyStatus type
+      const typedStatus = newStatus as BountyStatus;
+      await updateBountyStatus(bountyId, typedStatus);
       setBounties(bounties.map(b => 
-        b.id === bountyId ? { ...b, status: newStatus } : b
+        b.id === bountyId ? { ...b, status: typedStatus } : b
       ));
     } catch (err) {
       setError('Failed to update bounty status');

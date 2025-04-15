@@ -25,6 +25,16 @@ import {
 import { IBounty, BountyStatus } from '@/types/bounty';
 import { ISubmission, SubmissionStatus } from '@/types/submission';
 import { UserRole } from '@/types/user';
+import { Octokit } from 'octokit';
+
+// GitHub API configuration
+const GITHUB_API_URL = 'https://api.github.com';
+const GITHUB_TOKEN = process.env.NEXT_PUBLIC_GITHUB_TOKEN || '';
+
+// Create authenticated Octokit instance for GitHub API
+const octokit = new Octokit({
+  auth: GITHUB_TOKEN
+});
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -328,6 +338,7 @@ export async function updateUserProfile(
     website?: string;
     twitter?: string;
     discord?: string;
+    githubUsername?: string;
     role?: UserRole;
   }
 ): Promise<void> {
@@ -401,10 +412,8 @@ export async function claimCompletedBounty({
     }
     
     // Verify this user is authorized to claim the bounty
-    // Option 1: Check against GitHub PR URL (requires setup elsewhere to associate PRs with users)
-    // This is the proper way, but requires more work to implement
-    const isAssociatedWithPR = await verifyUserOwnsGitHubPR(userId, prUrl);
-    if (!isAssociatedWithPR) {
+    const isAuthorized = await isPRSubmitter(userId, prUrl);
+    if (!isAuthorized) {
       console.error('User is not authorized to claim this bounty - not the PR owner');
       return false;
     }
@@ -458,41 +467,114 @@ export async function claimCompletedBounty({
   }
 }
 
-// Helper function to verify the user owns the GitHub PR
-// This is a placeholder function - in production, this would validate with GitHub API
-async function verifyUserOwnsGitHubPR(userId: string, prUrl: string): Promise<boolean> {
+// Production implementation for PR owner verification
+// This method uses multiple strategies to verify PR ownership
+async function isPRSubmitter(userId: string, prUrl: string): Promise<boolean> {
   if (!db) {
     return false;
   }
   
   try {
-    // Get the user's GitHub information from their profile
+    // Get the user's info
     const userDoc = await getDoc(doc(db, 'users', userId));
     if (!userDoc.exists()) {
       console.error('User not found');
       return false;
     }
     
-    const userData = userDoc.data();
-    const githubUsername = userData.githubUsername;
-    
-    if (!githubUsername) {
-      console.error('User has no associated GitHub username');
-      return false;
-    }
-    
-    // Extract the PR owner username from the PR URL
-    // Example PR URL: https://github.com/username/repo/pull/123
-    const prUrlParts = prUrl.split('/');
-    const prOwnerIndex = prUrlParts.indexOf('github.com') + 1;
-    
-    if (prOwnerIndex < 1 || prOwnerIndex >= prUrlParts.length) {
+    // Extract PR information from URL
+    const prInfo = extractPRInfo(prUrl);
+    if (!prInfo) {
       console.error('Invalid PR URL format');
       return false;
     }
     
-    // In a real implementation, you would make a GitHub API call to verify
-    // For now, we'll just check if the PR is associated with the bounty
+    const { owner, repo, number } = prInfo;
+    console.log(`Extracted PR info - Owner: ${owner}, Repo: ${repo}, Number: ${number}`);
+    
+    // Strategy 1: Direct GitHub username comparison
+    const userData = userDoc.data();
+    const userGithubUsername = userData.githubUsername;
+    
+    if (userGithubUsername) {
+      // Use GitHub API to get PR details
+      try {
+        const prOwner = await getPROwner(owner, repo, number);
+        
+        if (prOwner && prOwner.toLowerCase() === userGithubUsername.toLowerCase()) {
+          console.log(`PR owner verified via direct GitHub username comparison`);
+          return true;
+        }
+        
+        console.log(`GitHub username mismatch: PR owner=${prOwner}, User=${userGithubUsername}`);
+      } catch (error) {
+        console.error('Error fetching PR from GitHub API:', error);
+      }
+    }
+    
+    // Strategy 2: Check metadata from bounty
+    console.log('Trying strategy 2: Check bounty metadata for GitHub username');
+    const bountyVerification = await verifyThroughBountyMetadata(userId, prUrl);
+    if (bountyVerification) {
+      return true;
+    }
+    
+    // Strategy 3: Check if the user's email matches the PR submitter's email
+    // This requires a GitHub token with appropriate permissions
+    if (GITHUB_TOKEN && auth?.currentUser?.email) {
+      console.log('Trying strategy 3: Check email association with GitHub');
+      try {
+        const prOwnerEmail = await getPROwnerEmail(owner, repo, number);
+        if (prOwnerEmail && prOwnerEmail === auth.currentUser.email) {
+          console.log('PR owner verified via email comparison');
+          
+          // If verified via email, update the user's GitHub username for future verifications
+          const prOwner = await getPROwner(owner, repo, number);
+          if (prOwner) {
+            await updateDoc(doc(db, 'users', userId), {
+              githubUsername: prOwner
+            });
+            console.log(`Updated user profile with GitHub username: ${prOwner}`);
+          }
+          
+          return true;
+        }
+      } catch (error) {
+        console.error('Error verifying PR through email:', error);
+      }
+    }
+    
+    // Fall back to firebase verification during development/testing
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('DEVELOPMENT MODE: Checking if PR is associated with any bounty');
+      const bountyCollection = collection(db, 'bounties');
+      const bountyQuery = query(
+        bountyCollection,
+        where('claimPR', '==', prUrl)
+      );
+      
+      const bountySnapshot = await getDocs(bountyQuery);
+      const isPRAssociatedWithBounty = !bountySnapshot.empty;
+      
+      if (isPRAssociatedWithBounty) {
+        console.log('WARNING: Development fallback - allowing claim as PR is associated with a bounty');
+        return true;
+      }
+    }
+    
+    console.log('All verification strategies failed');
+    return false;
+  } catch (error) {
+    console.error('Error in PR submitter verification:', error);
+    return false;
+  }
+}
+
+async function verifyThroughBountyMetadata(userId: string, prUrl: string): Promise<boolean> {
+  if (!db || !auth?.currentUser?.email) return false;
+  
+  try {
+    // Find bounties with this PR URL
     const bountyCollection = collection(db, 'bounties');
     const bountyQuery = query(
       bountyCollection,
@@ -500,17 +582,128 @@ async function verifyUserOwnsGitHubPR(userId: string, prUrl: string): Promise<bo
     );
     
     const bountySnapshot = await getDocs(bountyQuery);
-    if (bountySnapshot.empty) {
-      console.error('No bounty found with this PR URL');
-      return false;
+    if (bountySnapshot.empty) return false;
+    
+    // Check each bounty for metadata
+    for (const docSnapshot of bountySnapshot.docs) {
+      const bountyData = docSnapshot.data();
+      
+      // Look for GitHub username in metadata
+      if (bountyData.statusMetadata?.githubUsername) {
+        const prGithubUsername = bountyData.statusMetadata.githubUsername;
+        console.log(`Found GitHub username in bounty metadata: ${prGithubUsername}`);
+        
+        // Get user's email for comparison
+        const userEmail = auth.currentUser.email;
+        
+        // Try to compare GitHub username with email for verification
+        const emailUsername = userEmail.split('@')[0].toLowerCase();
+        const githubUsername = prGithubUsername.toLowerCase();
+        
+        const emailMatch = 
+          emailUsername === githubUsername || 
+          emailUsername.includes(githubUsername) || 
+          githubUsername.includes(emailUsername);
+          
+        if (emailMatch) {
+          console.log('Email username matches GitHub username pattern');
+          
+          // Update user profile with verified GitHub username
+          await updateDoc(doc(db, 'users', userId), {
+            githubUsername: prGithubUsername
+          });
+          
+          return true;
+        }
+      }
     }
     
-    // For now, we'll allow the claim as long as the PR is associated with a bounty
-    // In production, you should validate against GitHub API
-    return true;
-  } catch (error) {
-    console.error('Error verifying PR ownership:', error);
     return false;
+  } catch (error) {
+    console.error('Error verifying through bounty metadata:', error);
+    return false;
+  }
+}
+
+// Helper function to extract PR owner, repo and number from URL
+function extractPRInfo(prUrl: string): { owner: string; repo: string; number: number } | null {
+  try {
+    // Match PR URL format: https://github.com/owner/repo/pull/123
+    const regex = /https?:\/\/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/;
+    const match = prUrl.match(regex);
+    
+    if (!match || match.length < 4) {
+      return null;
+    }
+    
+    return {
+      owner: match[1],
+      repo: match[2],
+      number: parseInt(match[3], 10)
+    };
+  } catch (error) {
+    console.error('Error extracting PR info:', error);
+    return null;
+  }
+}
+
+// Helper function to get PR owner using GitHub API
+async function getPROwner(repoOwner: string, repoName: string, pullNumber: number): Promise<string | null> {
+  try {
+    // Use authenticated Octokit client if token available
+    const { data: pullRequest } = await octokit.rest.pulls.get({
+      owner: repoOwner,
+      repo: repoName,
+      pull_number: pullNumber
+    });
+    
+    return pullRequest.user?.login || null;
+  } catch (error) {
+    console.error('GitHub API error when fetching PR:', error);
+    
+    // Attempt unauthenticated fetch as fallback
+    try {
+      const response = await fetch(
+        `${GITHUB_API_URL}/repos/${repoOwner}/${repoName}/pulls/${pullNumber}`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.user?.login || null;
+      }
+    } catch (fallbackError) {
+      console.error('Fallback fetch also failed:', fallbackError);
+    }
+    
+    return null;
+  }
+}
+
+// Helper function to get PR owner's email (requires token with appropriate permissions)
+async function getPROwnerEmail(repoOwner: string, repoName: string, pullNumber: number): Promise<string | null> {
+  if (!GITHUB_TOKEN) return null;
+  
+  try {
+    // First get the PR to find the commit SHA
+    const { data: pullRequest } = await octokit.rest.pulls.get({
+      owner: repoOwner,
+      repo: repoName,
+      pull_number: pullNumber
+    });
+    
+    if (!pullRequest.head?.sha) return null;
+    
+    // Get the commit to find the author email
+    const { data: commit } = await octokit.rest.git.getCommit({
+      owner: repoOwner,
+      repo: repoName,
+      commit_sha: pullRequest.head.sha
+    });
+    
+    return commit.author?.email || null;
+  } catch (error) {
+    console.error('Error getting PR owner email:', error);
+    return null;
   }
 }
 

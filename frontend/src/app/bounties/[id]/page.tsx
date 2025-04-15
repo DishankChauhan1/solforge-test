@@ -50,6 +50,16 @@ export default function BountyPage() {
       // 1. Verify the user is the one who created the PR
       const prUrl = bounty.prUrl || 'https://github.com/unknown-pr-url';
       
+      if (!prUrl || prUrl === 'https://github.com/unknown-pr-url') {
+        toast.error('Cannot find the associated Pull Request');
+        setClaimStatus('idle');
+        setClaiming(false);
+        return;
+      }
+      
+      // Show user we're working on verifying their PR ownership
+      toast.loading('Verifying PR ownership...', { id: 'verification' });
+      
       // 2. Claim the bounty in our database
       setClaimStatus('processing');
       const success = await claimCompletedBounty({
@@ -57,6 +67,9 @@ export default function BountyPage() {
         prUrl,
         userId: user.uid
       });
+      
+      // Dismiss the loading toast
+      toast.dismiss('verification');
       
       if (success) {
         setClaimStatus('completed');
@@ -73,11 +86,22 @@ export default function BountyPage() {
         }, 3000);
       } else {
         setClaimStatus('idle');
-        toast.error('Failed to claim bounty. Are you the PR owner?');
+        toast.error('Failed to claim bounty. This could be because:');
+        toast.error('1. You are not the PR owner');
+        toast.error('2. The bounty has already been claimed');
+        toast.error('3. Your GitHub account is not linked correctly');
+        
+        // Give some guidance on what to do next
+        toast.success('Try linking your GitHub account in profile settings or contact support', {
+          duration: 8000
+        });
       }
     } catch (error) {
       console.error('Error claiming bounty:', error);
       toast.error('An error occurred while claiming the bounty');
+      if (error instanceof Error) {
+        toast.error(error.message);
+      }
       setClaimStatus('idle');
     } finally {
       setClaiming(false);

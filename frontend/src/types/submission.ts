@@ -22,7 +22,7 @@ export interface ISubmission {
   zkProof?: string;
   commitHash?: string;
   branchName?: string;
-  files?: {
+  fileDetails?: {
     filename: string;
     additions: number;
     deletions: number;

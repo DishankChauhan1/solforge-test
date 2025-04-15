@@ -112,8 +112,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           email: firebaseUser.email || '',
           displayName: firebaseUser.displayName || '',
           photoURL: firebaseUser.photoURL || '',
-          role: 'hunter' as UserRole,
-          createdAt: serverTimestamp() as Timestamp,
+          role: 'contributor' as UserRole,
+          createdAt: new Date().toISOString(),
           lastLogin: serverTimestamp() as Timestamp,
         };
         
@@ -129,8 +129,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         email: firebaseUser.email || '',
         displayName: firebaseUser.displayName || '',
         photoURL: firebaseUser.photoURL || '',
-        role: 'hunter' as UserRole,
-        createdAt: serverTimestamp() as Timestamp,
+        role: 'contributor' as UserRole,
+        createdAt: new Date().toISOString(),
         lastLogin: serverTimestamp() as Timestamp,
       };
       console.log('Using basic user data as fallback:', basicUser);

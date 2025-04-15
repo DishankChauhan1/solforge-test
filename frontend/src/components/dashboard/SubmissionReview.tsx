@@ -112,7 +112,12 @@ export function SubmissionReview() {
                     {submission.prUrl}
                   </a>
                   <p className="text-sm text-gray-500 mt-1">
-                    Submitted {formatDistanceToNow(new Date(submission.createdAt), { addSuffix: true })}
+                    Submitted {formatDistanceToNow(
+                      submission.createdAt && 'seconds' in submission.createdAt 
+                        ? new Date(submission.createdAt.seconds * 1000) 
+                        : new Date(submission.createdAt),
+                      { addSuffix: true }
+                    )}
                   </p>
                 </div>
                 <div className="flex gap-2">

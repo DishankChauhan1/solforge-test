@@ -9,6 +9,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { updateUserProfile } from '@/lib/firebase';
 import { UserRole } from '@/types/user';
+import { toast } from 'react-hot-toast';
 
 export default function ProfilePage() {
   const { user, loading } = useAuth();
@@ -23,6 +24,7 @@ export default function ProfilePage() {
     website: user?.website || '',
     twitter: user?.twitter || '',
     discord: user?.discord || '',
+    githubUsername: user?.githubUsername || '',
     role: user?.role || 'contributor' as UserRole,
   });
 
@@ -31,6 +33,19 @@ export default function ProfilePage() {
       router.push('/login');
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (user) {
+      setFormData({
+        bio: user.bio || '',
+        website: user.website || '',
+        twitter: user.twitter || '',
+        discord: user.discord || '',
+        githubUsername: user.githubUsername || '',
+        role: user.role || 'contributor' as UserRole,
+      });
+    }
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,11 +57,59 @@ export default function ProfilePage() {
     try {
       await updateUserProfile(user.uid, formData);
       setIsEditing(false);
+      toast.success('Profile updated successfully!');
     } catch (err) {
       setError('Failed to update profile. Please try again.');
       console.error('Error updating profile:', err);
+      toast.error('Failed to update profile');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Function to verify GitHub username
+  const verifyGitHubUsername = async () => {
+    if (!formData.githubUsername) {
+      toast.error('Please enter a GitHub username');
+      return;
+    }
+
+    try {
+      // Show loading toast
+      toast.loading('Verifying GitHub username...', { id: 'github-verification' });
+
+      // Make a request to the GitHub API to check if the username exists
+      const response = await fetch(`https://api.github.com/users/${formData.githubUsername}`);
+
+      // Dismiss loading toast
+      toast.dismiss('github-verification');
+
+      if (response.ok) {
+        const userData = await response.json();
+        
+        // Update the form with data from GitHub
+        setFormData(prev => ({
+          ...prev,
+          githubUsername: userData.login,
+        }));
+
+        // Show success message
+        toast.success('GitHub username verified!');
+        
+        // Save the verified username to user profile
+        if (user) {
+          await updateUserProfile(user.uid, {
+            ...formData,
+            githubUsername: userData.login,
+          });
+        }
+      } else {
+        toast.error('GitHub username not found. Please check and try again.');
+      }
+    } catch (error) {
+      toast.dismiss('github-verification');
+      toast.error('Error verifying GitHub username');
+      console.error('Error verifying GitHub username:', error);
     }
   };
 
@@ -131,6 +194,29 @@ export default function ProfilePage() {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">GitHub Username</label>
+                  <div className="mt-1 flex rounded-md shadow-sm">
+                    <input
+                      type="text"
+                      value={formData.githubUsername}
+                      onChange={(e) => setFormData({ ...formData, githubUsername: e.target.value })}
+                      className="flex-1 block w-full rounded-l-md border-gray-300 focus:border-purple-500 focus:ring-purple-500"
+                      placeholder="github-username"
+                    />
+                    <button
+                      type="button"
+                      onClick={verifyGitHubUsername}
+                      className="inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 rounded-r-md bg-gray-50 text-gray-500 text-sm"
+                    >
+                      Verify
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Linking your GitHub account is required to claim bounties for PRs you've created.
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Twitter</label>
@@ -192,6 +278,16 @@ export default function ProfilePage() {
                         <dd className="mt-1 text-sm text-purple-600 hover:text-purple-700">
                           <a href={user.website} target="_blank" rel="noopener noreferrer">
                             {user.website}
+                          </a>
+                        </dd>
+                      </div>
+                    )}
+                    {user.githubUsername && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500">GitHub</dt>
+                        <dd className="mt-1 text-sm text-purple-600 hover:text-purple-700">
+                          <a href={`https://github.com/${user.githubUsername}`} target="_blank" rel="noopener noreferrer">
+                            {user.githubUsername}
                           </a>
                         </dd>
                       </div>
