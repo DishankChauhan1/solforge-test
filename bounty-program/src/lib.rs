@@ -16,7 +16,7 @@ pub mod state;
 use crate::instruction::BountyInstruction;
 
 // Program ID - Replace this with your actual program ID after deployment
-solana_program::declare_id!("9p1X1hkMwYRaVfknfQGEdqvph9VQmKjkeRhzKCaz3PeQ");
+solana_program::declare_id!("dGBsodouKiYTUyFudwbHdfXJaHWbUEyXhyw7jj4BBeY");
 
 // Declare and export the program's entrypoint
 entrypoint!(process_instruction);

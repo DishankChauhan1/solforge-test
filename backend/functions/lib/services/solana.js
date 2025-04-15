@@ -6,7 +6,7 @@ const anchor_1 = require("@coral-xyz/anchor");
 // Initialize Solana connection
 const connection = new web3_js_1.Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com");
 // Load program ID from environment variable
-const PROGRAM_ID = new web3_js_1.PublicKey(process.env.PROGRAM_ID || "your_program_id_here");
+const PROGRAM_ID = new web3_js_1.PublicKey(process.env.PROGRAM_ID || "dGBsodouKiYTUyFudwbHdfXJaHWbUEyXhyw7jj4BBeY");
 // Load admin wallet from environment
 const loadAdminWallet = () => {
     const privateKey = process.env.ADMIN_PRIVATE_KEY;
@@ -24,7 +24,7 @@ const createSolBounty = async (walletPublicKey, amount, description) => {
         const lamports = Math.floor(amount * anchor_1.web3.LAMPORTS_PER_SOL);
         // Create instruction data
         const data = Buffer.from([
-            0, // CreateSolBounty instruction
+            0,
             ...new Uint8Array(new Uint16Array([lamports]).buffer),
             ...Buffer.from(description),
         ]);

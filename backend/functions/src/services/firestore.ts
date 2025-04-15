@@ -57,6 +57,8 @@ export interface Bounty {
   description: string;
   amount: number;
   tokenMint?: string;
+  issueUrl: string;
+  repositoryUrl: string;
   createdBy: string;
   createdAt: admin.firestore.Timestamp;
   updatedAt: admin.firestore.Timestamp;
@@ -183,4 +185,49 @@ export async function updateBountyStatus(
     console.error('Error updating bounty status:', error);
     throw error;
   }
-} 
+}
+
+// Get a bounty by its issue URL
+export const getBountyByIssueUrl = async (issueUrl: string): Promise<Bounty | null> => {
+  const db = getDb();
+  const bountySnapshot = await db.collection('bounties')
+    .where('issueUrl', '==', issueUrl)
+    .limit(1)
+    .get();
+  
+  if (bountySnapshot.empty) {
+    return null;
+  }
+  
+  const doc = bountySnapshot.docs[0];
+  return { id: doc.id, ...doc.data() } as Bounty;
+};
+
+// Get bounties by repository URL
+export const getBountyByRepo = async (repositoryUrl: string): Promise<Bounty[]> => {
+  const db = getDb();
+  const bountySnapshot = await db.collection('bounties')
+    .where('repositoryUrl', '==', repositoryUrl)
+    .get();
+  
+  if (bountySnapshot.empty) {
+    return [];
+  }
+  
+  return bountySnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  })) as Bounty[];
+};
+
+// Update a bounty with PR information
+export const updateBountyWithPR = async (bountyId: string, prUrl: string): Promise<void> => {
+  const db = getDb();
+  const bountyRef = db.collection('bounties').doc(bountyId);
+  const now = admin.firestore.Timestamp.now();
+  
+  await bountyRef.update({
+    claimPR: prUrl,
+    updatedAt: now
+  });
+}; 

@@ -109,8 +109,18 @@ impl Processor {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
+        // Verify bounty account is the correct PDA
+        let (expected_bounty_address, bump_seed) = 
+            crate::instruction::find_bounty_address(program_id, &issue_hash, creator_info.key);
+        
+        if expected_bounty_address != *bounty_info.key {
+            msg!("Error: Bounty account does not match expected PDA");
+            return Err(ProgramError::InvalidArgument);
+        }
+
         let clock = Clock::get()?;
         if deadline <= clock.unix_timestamp {
+            msg!("Error: Deadline must be in the future");
             return Err(BountyError::InvalidDeadline.into());
         }
 
@@ -119,8 +129,8 @@ impl Processor {
         let rent_lamports = rent.minimum_balance(space);
         let total_lamports = rent_lamports.checked_add(amount).ok_or(BountyError::Overflow)?;
 
-        // Create bounty account
-        invoke(
+        // Create bounty account using PDA
+        invoke_signed(
             &system_instruction::create_account(
                 creator_info.key,
                 bounty_info.key,
@@ -129,18 +139,29 @@ impl Processor {
                 program_id,
             ),
             &[creator_info.clone(), bounty_info.clone(), system_program_info.clone()],
+            &[&[
+                crate::instruction::BOUNTY_SEED_PREFIX,
+                &issue_hash[..],
+                creator_info.key.as_ref(),
+                &[bump_seed],
+            ]],
         )?;
 
+        // Create and initialize the bounty
         let bounty = Bounty::new_sol_bounty(
             *creator_info.key,
             amount,
             description,
             issue_hash,
-            issue_url,
-            repository_url,
+            &issue_url,
+            &repository_url,
             deadline,
         );
         bounty.serialize(&mut *bounty_info.data.borrow_mut())?;
+
+        msg!("SOL bounty created for {} lamports", amount);
+        msg!("Issue URL: {}", issue_url);
+        msg!("Deadline: {}", deadline);
 
         Ok(())
     }
@@ -165,20 +186,33 @@ impl Processor {
         let token_program_info = next_account_info(account_info_iter)?;
         let system_program_info = next_account_info(account_info_iter)?;
 
+        // Validate accounts
         if !creator_info.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
+        // Check if the token mint provided matches the expected token mint
+        if token_mint_info.key != &token_mint {
+            return Err(BountyError::InvalidTokenMint.into());
+        }
+
+        // Validate token program
+        if token_program_info.key != &spl_token::id() {
+            return Err(ProgramError::IncorrectProgramId);
+        }
+
+        // Check deadline is in the future
         let clock = Clock::get()?;
         if deadline <= clock.unix_timestamp {
             return Err(BountyError::InvalidDeadline.into());
         }
 
+        // Create bounty account
         let space = Bounty::LEN;
         let rent = Rent::get()?;
         let rent_lamports = rent.minimum_balance(space);
 
-        // Create bounty account
+        // Create account and allocate space
         invoke(
             &system_instruction::create_account(
                 creator_info.key,
@@ -190,7 +224,7 @@ impl Processor {
             &[creator_info.clone(), bounty_info.clone(), system_program_info.clone()],
         )?;
 
-        // Transfer tokens to bounty account
+        // Transfer tokens from creator to bounty token account
         invoke(
             &token_instruction::transfer(
                 token_program_info.key,
@@ -208,17 +242,23 @@ impl Processor {
             ],
         )?;
 
+        // Initialize the bounty
         let bounty = Bounty::new_token_bounty(
             *creator_info.key,
             amount,
             description,
             issue_hash,
-            issue_url,
-            repository_url,
+            &issue_url,
+            &repository_url,
             deadline,
-            *token_mint_info.key,
+            token_mint,
         );
         bounty.serialize(&mut *bounty_info.data.borrow_mut())?;
+
+        // Log successful token bounty creation
+        msg!("Token bounty created for {} tokens of mint {}", amount, token_mint);
+        msg!("Issue URL: {}", issue_url);
+        msg!("Deadline: {}", deadline);
 
         Ok(())
     }

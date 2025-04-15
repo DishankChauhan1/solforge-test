@@ -15,26 +15,15 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getBountyByPR = exports.approveBounty = exports.claimBounty = exports.listBounties = exports.createBounty = exports.getBounty = exports.getUser = exports.updateUser = exports.createUser = void 0;
-exports.updateBountyStatus = updateBountyStatus;
+exports.updateBountyWithPR = exports.getBountyByRepo = exports.getBountyByIssueUrl = exports.updateBountyStatus = exports.getBountyByPR = exports.approveBounty = exports.claimBounty = exports.listBounties = exports.createBounty = exports.getBounty = exports.getUser = exports.updateUser = exports.createUser = void 0;
 const admin = __importStar(require("firebase-admin"));
 // Get Firestore instance
 const getDb = () => {
@@ -149,4 +138,42 @@ async function updateBountyStatus(bountyId, status, metadata) {
         throw error;
     }
 }
+exports.updateBountyStatus = updateBountyStatus;
+// Get a bounty by its issue URL
+const getBountyByIssueUrl = async (issueUrl) => {
+    const db = getDb();
+    const bountySnapshot = await db.collection('bounties')
+        .where('issueUrl', '==', issueUrl)
+        .limit(1)
+        .get();
+    if (bountySnapshot.empty) {
+        return null;
+    }
+    const doc = bountySnapshot.docs[0];
+    return Object.assign({ id: doc.id }, doc.data());
+};
+exports.getBountyByIssueUrl = getBountyByIssueUrl;
+// Get bounties by repository URL
+const getBountyByRepo = async (repositoryUrl) => {
+    const db = getDb();
+    const bountySnapshot = await db.collection('bounties')
+        .where('repositoryUrl', '==', repositoryUrl)
+        .get();
+    if (bountySnapshot.empty) {
+        return [];
+    }
+    return bountySnapshot.docs.map(doc => (Object.assign({ id: doc.id }, doc.data())));
+};
+exports.getBountyByRepo = getBountyByRepo;
+// Update a bounty with PR information
+const updateBountyWithPR = async (bountyId, prUrl) => {
+    const db = getDb();
+    const bountyRef = db.collection('bounties').doc(bountyId);
+    const now = admin.firestore.Timestamp.now();
+    await bountyRef.update({
+        claimPR: prUrl,
+        updatedAt: now
+    });
+};
+exports.updateBountyWithPR = updateBountyWithPR;
 //# sourceMappingURL=firestore.js.map

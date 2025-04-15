@@ -7,6 +7,39 @@ use solana_program::{
     program_error::ProgramError,
 };
 
+/// Seeds used for the bounty PDA derivation
+pub const BOUNTY_SEED_PREFIX: &[u8] = b"bounty";
+
+/// Helper function to find the bounty PDA from issue hash
+pub fn find_bounty_address(
+    program_id: &Pubkey,
+    issue_hash: &[u8; 32],
+    creator: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            BOUNTY_SEED_PREFIX,
+            issue_hash,
+            creator.as_ref(),
+        ],
+        program_id
+    )
+}
+
+/// Helper function to find the token vault PDA for a bounty
+pub fn find_token_vault_address(
+    program_id: &Pubkey,
+    bounty_address: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            b"vault",
+            bounty_address.as_ref(),
+        ],
+        program_id
+    )
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub enum BountyInstruction {
     /// Creates a new SOL bounty

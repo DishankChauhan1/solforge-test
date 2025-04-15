@@ -27,7 +27,7 @@ export class TransactionError extends Error {
 }
 
 // Program and token addresses
-const PROGRAM_ID = new PublicKey('9p1X1hkMwYRaVfknfQGEdqvph9VQmKjkeRhzKCaz3PeQ');  // Replace with actual program ID
+const PROGRAM_ID = new PublicKey('dGBsodouKiYTUyFudwbHdfXJaHWbUEyXhyw7jj4BBeY');  // Replace with actual program ID
 const USDC_MINT = new PublicKey('Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr'); // Devnet USDC
 const BOUNTY_PDA_SEED = 'bounty';
 

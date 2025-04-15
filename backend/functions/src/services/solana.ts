@@ -6,7 +6,7 @@ import { web3 } from "@coral-xyz/anchor";
 const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com");
 
 // Load program ID from environment variable
-const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || "your_program_id_here");
+const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || "dGBsodouKiYTUyFudwbHdfXJaHWbUEyXhyw7jj4BBeY");
 
 // Load admin wallet from environment
 const loadAdminWallet = (): Keypair => {
