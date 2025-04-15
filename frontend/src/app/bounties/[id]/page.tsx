@@ -47,14 +47,29 @@ export default function BountyPage() {
       setClaiming(true);
       setClaimStatus('verifying');
       
-      // 1. Verify the user is the one who created the PR
-      const prUrl = bounty.prUrl || 'https://github.com/unknown-pr-url';
+      // 1. Get the PR URL
+      let prUrl = bounty.prUrl || '';
       
       if (!prUrl || prUrl === 'https://github.com/unknown-pr-url') {
-        toast.error('Cannot find the associated Pull Request');
-        setClaimStatus('idle');
-        setClaiming(false);
-        return;
+        console.log('No PR URL found in bounty, checking if user wants to provide one');
+        
+        // Prompt user for PR URL if not available
+        const manualPrUrl = prompt(
+          'No pull request found for this bounty. Please enter the GitHub PR URL:', 
+          'https://github.com/username/repo/pull/123'
+        );
+        
+        if (!manualPrUrl || !manualPrUrl.includes('github.com') || !manualPrUrl.includes('/pull/')) {
+          toast.error('Invalid PR URL provided');
+          setClaimStatus('idle');
+          setClaiming(false);
+          return;
+        }
+        
+        prUrl = manualPrUrl;
+        console.log(`Using manually provided PR URL: ${prUrl}`);
+      } else {
+        console.log(`Using bounty PR URL: ${prUrl}`);
       }
       
       // Show user we're working on verifying their PR ownership
@@ -62,6 +77,8 @@ export default function BountyPage() {
       
       // 2. Claim the bounty in our database
       setClaimStatus('processing');
+      console.log(`Attempting to claim bounty ${id} for user ${user.uid} with PR URL ${prUrl}`);
+      
       const success = await claimCompletedBounty({
         bountyId: id as string,
         prUrl,
@@ -91,8 +108,8 @@ export default function BountyPage() {
         toast.error('2. The bounty has already been claimed');
         toast.error('3. Your GitHub account is not linked correctly');
         
-        // Give some guidance on what to do next
-        toast.success('Try linking your GitHub account in profile settings or contact support', {
+        // Give guidance for fixing GitHub account link
+        toast.success('Go to Profile and add your GitHub username, or try a different PR URL', {
           duration: 8000
         });
       }

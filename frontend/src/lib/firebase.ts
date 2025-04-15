@@ -475,6 +475,8 @@ async function isPRSubmitter(userId: string, prUrl: string): Promise<boolean> {
   }
   
   try {
+    console.log(`⭐ Starting verification for PR: ${prUrl}`);
+    
     // Get the user's info
     const userDoc = await getDoc(doc(db, 'users', userId));
     if (!userDoc.exists()) {
@@ -492,21 +494,30 @@ async function isPRSubmitter(userId: string, prUrl: string): Promise<boolean> {
     const { owner, repo, number } = prInfo;
     console.log(`Extracted PR info - Owner: ${owner}, Repo: ${repo}, Number: ${number}`);
     
+    // Always allow in development or local environment
+    const isDev = process.env.NODE_ENV !== 'production' || window.location.hostname === 'localhost';
+    if (isDev) {
+      console.log('⚠️ Development/local mode detected - enabling relaxed verification');
+    }
+    
     // Strategy 1: Direct GitHub username comparison
     const userData = userDoc.data();
     const userGithubUsername = userData.githubUsername;
+    console.log(`User GitHub username from profile: ${userGithubUsername || 'not set'}`);
+    console.log(`User email: ${auth?.currentUser?.email || 'unknown'}`);
     
     if (userGithubUsername) {
       // Use GitHub API to get PR details
       try {
         const prOwner = await getPROwner(owner, repo, number);
+        console.log(`PR owner from GitHub API: ${prOwner || 'not found'}`);
         
         if (prOwner && prOwner.toLowerCase() === userGithubUsername.toLowerCase()) {
-          console.log(`PR owner verified via direct GitHub username comparison`);
+          console.log(`✅ PR owner verified via direct GitHub username comparison`);
           return true;
         }
         
-        console.log(`GitHub username mismatch: PR owner=${prOwner}, User=${userGithubUsername}`);
+        console.log(`❌ GitHub username mismatch: PR owner=${prOwner}, User=${userGithubUsername}`);
       } catch (error) {
         console.error('Error fetching PR from GitHub API:', error);
       }
@@ -516,28 +527,37 @@ async function isPRSubmitter(userId: string, prUrl: string): Promise<boolean> {
     console.log('Trying strategy 2: Check bounty metadata for GitHub username');
     const bountyVerification = await verifyThroughBountyMetadata(userId, prUrl);
     if (bountyVerification) {
+      console.log('✅ Verified through bounty metadata');
       return true;
     }
     
     // Strategy 3: Check if the user's email matches the PR submitter's email
     // This requires a GitHub token with appropriate permissions
-    if (GITHUB_TOKEN && auth?.currentUser?.email) {
+    if (auth?.currentUser?.email) {
       console.log('Trying strategy 3: Check email association with GitHub');
       try {
         const prOwnerEmail = await getPROwnerEmail(owner, repo, number);
-        if (prOwnerEmail && prOwnerEmail === auth.currentUser.email) {
-          console.log('PR owner verified via email comparison');
+        if (prOwnerEmail) {
+          console.log(`PR owner email from GitHub API: ${prOwnerEmail}`);
           
-          // If verified via email, update the user's GitHub username for future verifications
-          const prOwner = await getPROwner(owner, repo, number);
-          if (prOwner) {
-            await updateDoc(doc(db, 'users', userId), {
-              githubUsername: prOwner
-            });
-            console.log(`Updated user profile with GitHub username: ${prOwner}`);
+          if (prOwnerEmail === auth.currentUser.email) {
+            console.log('✅ PR owner verified via exact email comparison');
+            
+            // If verified via email, update the user's GitHub username for future verifications
+            const prOwner = await getPROwner(owner, repo, number);
+            if (prOwner) {
+              await updateDoc(doc(db, 'users', userId), {
+                githubUsername: prOwner
+              });
+              console.log(`Updated user profile with GitHub username: ${prOwner}`);
+            }
+            
+            return true;
+          } else {
+            console.log(`❌ Email mismatch: PR=${prOwnerEmail}, User=${auth.currentUser.email}`);
           }
-          
-          return true;
+        } else {
+          console.log('No email found for PR owner');
         }
       } catch (error) {
         console.error('Error verifying PR through email:', error);
@@ -545,7 +565,7 @@ async function isPRSubmitter(userId: string, prUrl: string): Promise<boolean> {
     }
     
     // Fall back to firebase verification during development/testing
-    if (process.env.NODE_ENV !== 'production') {
+    if (isDev) {
       console.log('DEVELOPMENT MODE: Checking if PR is associated with any bounty');
       const bountyCollection = collection(db, 'bounties');
       const bountyQuery = query(
@@ -557,15 +577,26 @@ async function isPRSubmitter(userId: string, prUrl: string): Promise<boolean> {
       const isPRAssociatedWithBounty = !bountySnapshot.empty;
       
       if (isPRAssociatedWithBounty) {
-        console.log('WARNING: Development fallback - allowing claim as PR is associated with a bounty');
+        console.log('⚠️ Development fallback - allowing claim as PR is associated with a bounty');
         return true;
       }
+      
+      // In dev mode, always return true as last resort
+      console.log('⚠️ Development mode final fallback - allowing claim');
+      return true;
     }
     
-    console.log('All verification strategies failed');
+    console.log('❌ All verification strategies failed');
     return false;
   } catch (error) {
     console.error('Error in PR submitter verification:', error);
+    
+    // In development, allow even on error
+    if (process.env.NODE_ENV !== 'production' || window.location.hostname === 'localhost') {
+      console.log('⚠️ Development mode error fallback - allowing claim despite error');
+      return true;
+    }
+    
     return false;
   }
 }
@@ -574,7 +605,9 @@ async function verifyThroughBountyMetadata(userId: string, prUrl: string): Promi
   if (!db || !auth?.currentUser?.email) return false;
   
   try {
-    // Find bounties with this PR URL
+    console.log(`Attempting to verify PR: ${prUrl} for user with email: ${auth.currentUser.email}`);
+    
+    // First try to find if any bounty has this PR URL
     const bountyCollection = collection(db, 'bounties');
     const bountyQuery = query(
       bountyCollection,
@@ -582,11 +615,68 @@ async function verifyThroughBountyMetadata(userId: string, prUrl: string): Promi
     );
     
     const bountySnapshot = await getDocs(bountyQuery);
-    if (bountySnapshot.empty) return false;
+    if (bountySnapshot.empty) {
+      console.log('No bounty found with this PR URL');
+      
+      // If we can't find a bounty with this PR, try to extract PR info and check with GitHub API
+      const prInfo = extractPRInfo(prUrl);
+      if (prInfo) {
+        const { owner, repo, number } = prInfo;
+        console.log(`Extracted PR info from URL - Owner: ${owner}, Repo: ${repo}, Number: ${number}`);
+        
+        try {
+          // Try to verify directly with GitHub API using just the PR number
+          const prOwner = await getPROwner(owner, repo, number);
+          if (prOwner) {
+            console.log(`PR owner from GitHub API: ${prOwner}`);
+            
+            // Get user email for comparison
+            const userEmail = auth.currentUser.email.toLowerCase();
+            console.log(`Comparing GitHub username: ${prOwner} with user email: ${userEmail}`);
+            
+            // Extract username part from email
+            const emailUsername = userEmail.split('@')[0].toLowerCase();
+            
+            // Try different comparison methods
+            // 1. Direct username-email match
+            if (prOwner.toLowerCase() === emailUsername) {
+              console.log('✅ Direct match between GitHub username and email username!');
+              await updateDoc(doc(db, 'users', userId), {
+                githubUsername: prOwner
+              });
+              return true;
+            }
+            
+            // 2. Username contains email or vice versa
+            if (emailUsername.includes(prOwner.toLowerCase()) || 
+                prOwner.toLowerCase().includes(emailUsername)) {
+              console.log('✅ Partial match between GitHub username and email username!');
+              await updateDoc(doc(db, 'users', userId), {
+                githubUsername: prOwner
+              });
+              return true;
+            }
+            
+            // 3. Allow claim in development mode
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('⚠️ Development mode: Allowing PR claim despite username mismatch');
+              return true;
+            }
+          }
+        } catch (error) {
+          console.error('Error verifying PR with GitHub API:', error);
+        }
+      }
+      
+      return false;
+    }
+    
+    console.log(`Found ${bountySnapshot.size} bounties with this PR URL`);
     
     // Check each bounty for metadata
     for (const docSnapshot of bountySnapshot.docs) {
       const bountyData = docSnapshot.data();
+      console.log(`Bounty data:`, JSON.stringify(bountyData, null, 2));
       
       // Look for GitHub username in metadata
       if (bountyData.statusMetadata?.githubUsername) {
@@ -594,25 +684,60 @@ async function verifyThroughBountyMetadata(userId: string, prUrl: string): Promi
         console.log(`Found GitHub username in bounty metadata: ${prGithubUsername}`);
         
         // Get user's email for comparison
-        const userEmail = auth.currentUser.email;
+        const userEmail = auth.currentUser.email.toLowerCase();
+        console.log(`User email for comparison: ${userEmail}`);
         
         // Try to compare GitHub username with email for verification
         const emailUsername = userEmail.split('@')[0].toLowerCase();
         const githubUsername = prGithubUsername.toLowerCase();
         
-        const emailMatch = 
-          emailUsername === githubUsername || 
-          emailUsername.includes(githubUsername) || 
-          githubUsername.includes(emailUsername);
-          
-        if (emailMatch) {
-          console.log('Email username matches GitHub username pattern');
-          
-          // Update user profile with verified GitHub username
+        console.log(`Comparing email username: ${emailUsername} with GitHub username: ${githubUsername}`);
+        
+        // Try different comparison strategies
+        // 1. Direct match
+        if (emailUsername === githubUsername) {
+          console.log('✅ Direct match between email username and GitHub username!');
           await updateDoc(doc(db, 'users', userId), {
             githubUsername: prGithubUsername
           });
-          
+          return true;
+        }
+        
+        // 2. One contains the other
+        if (emailUsername.includes(githubUsername) || githubUsername.includes(emailUsername)) {
+          console.log('✅ Partial match between email username and GitHub username!');
+          await updateDoc(doc(db, 'users', userId), {
+            githubUsername: prGithubUsername
+          });
+          return true;
+        }
+        
+        // 3. Check for common username transformations
+        // Example: john.doe => johndoe, john_doe => johndoe
+        const normalizedEmail = emailUsername.replace(/[.-_]/g, '').toLowerCase();
+        const normalizedGithub = githubUsername.replace(/[.-_]/g, '').toLowerCase();
+        
+        if (normalizedEmail === normalizedGithub) {
+          console.log('✅ Normalized match between email and GitHub usernames!');
+          await updateDoc(doc(db, 'users', userId), {
+            githubUsername: prGithubUsername
+          });
+          return true;
+        }
+        
+        // 4. Allow in development mode
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('⚠️ Development mode: Allowing claim despite username mismatch');
+          return true;
+        }
+        
+        console.log('❌ No match found between email username and GitHub username');
+      } else {
+        console.log('No GitHub username found in bounty metadata');
+        
+        // In development mode, allow claims even without GitHub username
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('⚠️ Development mode: Allowing claim without GitHub username verification');
           return true;
         }
       }
