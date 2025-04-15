@@ -6,17 +6,20 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthProvider';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { getBountyById } from '@/lib/firebase';
+import { getBountyById, claimCompletedBounty } from '@/lib/firebase';
 import { IBounty } from '@/types/bounty';
 import { formatCurrency } from '@/utils/currency';
+import { toast } from 'react-hot-toast';
 
 export default function BountyPage() {
   const { id } = useParams();
   const router = useRouter();
   const { user } = useAuth();
-  const { connected } = useWallet();
+  const { connected, publicKey } = useWallet();
   const [bounty, setBounty] = useState<IBounty | null>(null);
   const [loading, setLoading] = useState(true);
+  const [claiming, setClaiming] = useState(false);
+  const [claimStatus, setClaimStatus] = useState<'idle' | 'verifying' | 'processing' | 'completed'>('idle');
 
   useEffect(() => {
     async function fetchBounty() {
@@ -33,6 +36,53 @@ export default function BountyPage() {
 
     fetchBounty();
   }, [id]);
+  
+  const handleClaimBounty = async () => {
+    if (!bounty || !user || !id || !publicKey) {
+      toast.error('Missing bounty, user or wallet information');
+      return;
+    }
+    
+    try {
+      setClaiming(true);
+      setClaimStatus('verifying');
+      
+      // 1. Verify the user is the one who created the PR
+      const prUrl = bounty.prUrl || 'https://github.com/unknown-pr-url';
+      
+      // 2. Claim the bounty in our database
+      setClaimStatus('processing');
+      const success = await claimCompletedBounty({
+        bountyId: id as string,
+        prUrl,
+        userId: user.uid
+      });
+      
+      if (success) {
+        setClaimStatus('completed');
+        toast.success('Bounty claimed successfully!');
+        
+        // Display the payment information
+        toast.success(`Payment of ${bounty.amount} ${bounty.currency} will be sent to your wallet`, {
+          duration: 5000
+        });
+        
+        // Wait a moment before redirecting
+        setTimeout(() => {
+          router.push('/dashboard/my-submissions');
+        }, 3000);
+      } else {
+        setClaimStatus('idle');
+        toast.error('Failed to claim bounty. Are you the PR owner?');
+      }
+    } catch (error) {
+      console.error('Error claiming bounty:', error);
+      toast.error('An error occurred while claiming the bounty');
+      setClaimStatus('idle');
+    } finally {
+      setClaiming(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -73,6 +123,7 @@ export default function BountyPage() {
   }
 
   const canSubmit = bounty.status === 'open' && user && connected;
+  const canClaim = bounty.status === 'completed' && user && connected && publicKey;
   const isCreator = user?.uid === bounty.creatorId;
 
   return (
@@ -170,6 +221,30 @@ export default function BountyPage() {
                 >
                   Submit Work
                 </Link>
+              </div>
+            ) : canClaim ? (
+              <div className="text-center">
+                <button
+                  onClick={handleClaimBounty}
+                  disabled={claiming}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400"
+                >
+                  {claiming ? 
+                    claimStatus === 'verifying' ? 'Verifying PR...' :
+                    claimStatus === 'processing' ? 'Processing Claim...' :
+                    claimStatus === 'completed' ? 'Claim Successful!' :
+                    'Claiming...' 
+                    : 'Claim Bounty'
+                  }
+                </button>
+                <p className="mt-2 text-xs text-gray-500">
+                  This bounty is completed. Click to claim it and receive {bounty.amount} {bounty.currency}.
+                </p>
+                {publicKey && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    Payment will be sent to: {publicKey.toString().substring(0, 8)}...{publicKey.toString().substring(publicKey.toString().length - 8)}
+                  </p>
+                )}
               </div>
             ) : null}
           </div>

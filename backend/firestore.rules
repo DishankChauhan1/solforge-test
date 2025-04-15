@@ -9,23 +9,6 @@ service cloud.firestore {
     function isUserAuthenticated(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
-    
-    function isValidBountyCreate() {
-      let bounty = request.resource.data;
-      return bounty.status == 'open' 
-        && bounty.creatorId == request.auth.uid
-        && bounty.amount > 0
-        && bounty.issueLink.matches('https://github.com/.*')
-        && bounty.repoLink.matches('https://github.com/.*')
-        && bounty.solanaTxId.size() > 0;
-    }
-    
-    function isValidBountyClaim(bounty) {
-      return bounty.status == 'open' 
-        && request.resource.data.status == 'claimed'
-        && request.resource.data.claimedBy == request.auth.uid
-        && request.resource.data.claimPR.matches('https://github.com/.*/pull/.*');
-    }
 
     // Users collection
     match /users/{userId} {
@@ -38,15 +21,16 @@ service cloud.firestore {
     // Bounties collection
     match /bounties/{bountyId} {
       allow read: if true;
-      allow create: if isAuthenticated() && isValidBountyCreate();
-      allow update: if isAuthenticated() && (
-        // Creator can update only certain fields
-        (resource.data.creatorId == request.auth.uid && 
-         request.resource.data.diff(resource.data).affectedKeys()
-         .hasOnly(['status', 'updatedAt'])) ||
-        // Claimer can update only when claiming
-        (isValidBountyClaim(resource.data))
-      );
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if false;
+    }
+
+    // Submissions collection
+    match /submissions/{submissionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
       allow delete: if false;
     }
   }

@@ -9,7 +9,7 @@
 
 import * as admin from 'firebase-admin';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { verifyPR, createBountyHandler, claimBountyHandler, getAllBounties, getBountyById } from './routes/bounties';
+import { verifyPR, createBountyHandler, createBountyHandlerV2, claimBountyHandler, getAllBounties, getBountyById } from './routes/bounties';
 import * as path from 'path';
 import { githubWebhookHandler, webhookTest } from './routes/github-webhooks';
 
@@ -35,6 +35,7 @@ try {
 export {
   verifyPR,
   createBountyHandler,
+  createBountyHandlerV2,
   claimBountyHandler,
   getAllBounties,
   getBountyById,

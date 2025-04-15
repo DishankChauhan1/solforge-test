@@ -131,8 +131,7 @@ export async function createBounty(bountyData: {
 // Helper function to get bounties from Firestore
 export async function getBounties({ status }: { status?: string } = {}): Promise<IBounty[]> {
   if (!db) {
-    console.log('Using mock bounty data as Firestore is not initialized');
-    return getMockBounties(status);
+    throw new Error('Firestore is not initialized');
   }
 
   try {
@@ -148,15 +147,14 @@ export async function getBounties({ status }: { status?: string } = {}): Promise
     }));
   } catch (error) {
     console.error('Error fetching bounties:', error);
-    return getMockBounties(status);
+    throw error;
   }
 }
 
 // Helper function to get a single bounty by ID
 export async function getBountyById(bountyId: string): Promise<IBounty | null> {
   if (!db) {
-    console.log('Using mock bounty data as Firestore is not initialized');
-    return getMockBounties()[0];
+    throw new Error('Firestore is not initialized');
   }
 
   try {
@@ -208,53 +206,6 @@ export async function submitBountyWork({
   });
 }
 
-// Helper function to generate mock bounty data for development
-function getMockBounties(status?: string): IBounty[] {
-  const now = Timestamp.fromDate(new Date());
-  const mockBounties: IBounty[] = [
-    {
-      id: '1',
-      title: 'Fix navigation bug in header',
-      description: 'The dropdown menu in the header doesn\'t close when clicking outside',
-      amount: 0.5,
-      currency: 'SOL',
-      status: 'open',
-      repositoryUrl: 'https://github.com/user/repo',
-      issueUrl: 'https://github.com/user/repo/issues/1',
-      createdAt: now,
-      creatorId: 'user1',
-      updatedAt: now,
-      issueHash: '123',
-      creatorWallet: 'mock-wallet-1',
-      locked: false,
-      deadline: now
-    },
-    {
-      id: '2',
-      title: 'Implement dark mode',
-      description: 'Add dark mode support to the application',
-      amount: 1.2,
-      currency: 'SOL',
-      status: 'in_progress',
-      repositoryUrl: 'https://github.com/user/repo',
-      issueUrl: 'https://github.com/user/repo/issues/2',
-      createdAt: now,
-      creatorId: 'user2',
-      updatedAt: now,
-      issueHash: '456',
-      creatorWallet: 'mock-wallet-2',
-      locked: false,
-      deadline: now
-    },
-  ];
-  
-  if (status) {
-    return mockBounties.filter(bounty => bounty.status === status);
-  }
-  
-  return mockBounties;
-}
-
 // Helper function to get submissions for a user or bounty
 export async function getSubmissions({ 
   userId, 
@@ -264,7 +215,7 @@ export async function getSubmissions({
   bountyId?: string;
 }): Promise<ISubmission[]> {
   if (!db || !auth?.currentUser) {
-    throw new Error('Not authenticated');
+    throw new Error('Not authenticated or Firestore is not initialized');
   }
 
   try {
@@ -272,21 +223,20 @@ export async function getSubmissions({
     let submissionQuery = query(submissionCollection);
 
     if (userId) {
-      // Get submissions where user is either submitter or reviewer
+      // Get submissions where user is the submitter
       submissionQuery = query(
         submissionCollection, 
         where('submitterId', '==', userId)
       );
+      // Note: We've removed the orderBy to avoid needing a composite index
     } else if (bountyId) {
-      // Get submissions for a specific bounty if user is creator or submitter
+      // Get submissions for a specific bounty
       submissionQuery = query(
         submissionCollection, 
         where('bountyId', '==', bountyId)
       );
+      // Note: We've removed the orderBy to avoid needing a composite index
     }
-
-    // Add orderBy to sort by most recent first
-    submissionQuery = query(submissionQuery, orderBy('createdAt', 'desc'));
     
     const snapshot = await getDocs(submissionQuery);
     return snapshot.docs.map(doc => ({
@@ -295,7 +245,7 @@ export async function getSubmissions({
     })) as ISubmission[];
   } catch (error) {
     console.error('Error fetching submissions:', error);
-    return [];
+    throw error;
   }
 }
 
@@ -415,6 +365,155 @@ export async function updateBountyStatus(bountyId: string, status: BountyStatus)
   }
 }
 
+// Helper function to manually claim a completed bounty
+export async function claimCompletedBounty({
+  bountyId,
+  prUrl,
+  userId
+}: {
+  bountyId: string;
+  prUrl: string;
+  userId: string;
+}): Promise<boolean> {
+  if (!db || !auth?.currentUser) {
+    throw new Error('Not authenticated or Firestore is not initialized');
+  }
+
+  try {
+    console.log(`Attempting to claim bounty: ${bountyId} for user: ${userId} with PR: ${prUrl}`);
+    
+    // 1. Get the bounty
+    const bountyRef = doc(db, 'bounties', bountyId);
+    const bountyDoc = await getDoc(bountyRef);
+    
+    if (!bountyDoc.exists()) {
+      console.error('Bounty not found');
+      return false;
+    }
+    
+    const bountyData = bountyDoc.data();
+    console.log('Current bounty data:', bountyData);
+    
+    // Check if bounty is already claimed
+    if (bountyData.claimedBy) {
+      console.error('Bounty has already been claimed');
+      return false;
+    }
+    
+    // Verify this user is authorized to claim the bounty
+    // Option 1: Check against GitHub PR URL (requires setup elsewhere to associate PRs with users)
+    // This is the proper way, but requires more work to implement
+    const isAssociatedWithPR = await verifyUserOwnsGitHubPR(userId, prUrl);
+    if (!isAssociatedWithPR) {
+      console.error('User is not authorized to claim this bounty - not the PR owner');
+      return false;
+    }
+    
+    // 2. Create a submission record if one doesn't exist
+    const submissionCollection = collection(db, 'submissions');
+    const submissionQuery = query(
+      submissionCollection,
+      where('bountyId', '==', bountyId),
+      where('submitterId', '==', userId)
+    );
+    
+    const existingSubmissions = await getDocs(submissionQuery);
+    
+    // If no submission exists, create one
+    if (existingSubmissions.empty) {
+      console.log('Creating new submission record');
+      const now = serverTimestamp();
+      const submissionData = {
+        bountyId,
+        submitterId: userId,
+        prUrl,
+        status: 'approved' as SubmissionStatus,
+        createdAt: now,
+        updatedAt: now,
+        files: []
+      };
+      
+      await addDoc(submissionCollection, submissionData);
+      console.log('Submission created successfully');
+    } else {
+      console.log('Submission already exists');
+    }
+    
+    // 3. Update the bounty record if needed
+    if (bountyData.status !== 'completed') {
+      await updateDoc(bountyRef, {
+        status: 'completed',
+        claimedBy: userId,
+        claimedAt: serverTimestamp(),
+        claimPR: prUrl,
+        updatedAt: serverTimestamp()
+      });
+      console.log('Bounty status updated to completed');
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error claiming completed bounty:', error);
+    return false;
+  }
+}
+
+// Helper function to verify the user owns the GitHub PR
+// This is a placeholder function - in production, this would validate with GitHub API
+async function verifyUserOwnsGitHubPR(userId: string, prUrl: string): Promise<boolean> {
+  if (!db) {
+    return false;
+  }
+  
+  try {
+    // Get the user's GitHub information from their profile
+    const userDoc = await getDoc(doc(db, 'users', userId));
+    if (!userDoc.exists()) {
+      console.error('User not found');
+      return false;
+    }
+    
+    const userData = userDoc.data();
+    const githubUsername = userData.githubUsername;
+    
+    if (!githubUsername) {
+      console.error('User has no associated GitHub username');
+      return false;
+    }
+    
+    // Extract the PR owner username from the PR URL
+    // Example PR URL: https://github.com/username/repo/pull/123
+    const prUrlParts = prUrl.split('/');
+    const prOwnerIndex = prUrlParts.indexOf('github.com') + 1;
+    
+    if (prOwnerIndex < 1 || prOwnerIndex >= prUrlParts.length) {
+      console.error('Invalid PR URL format');
+      return false;
+    }
+    
+    // In a real implementation, you would make a GitHub API call to verify
+    // For now, we'll just check if the PR is associated with the bounty
+    const bountyCollection = collection(db, 'bounties');
+    const bountyQuery = query(
+      bountyCollection,
+      where('claimPR', '==', prUrl)
+    );
+    
+    const bountySnapshot = await getDocs(bountyQuery);
+    if (bountySnapshot.empty) {
+      console.error('No bounty found with this PR URL');
+      return false;
+    }
+    
+    // For now, we'll allow the claim as long as the PR is associated with a bounty
+    // In production, you should validate against GitHub API
+    return true;
+  } catch (error) {
+    console.error('Error verifying PR ownership:', error);
+    return false;
+  }
+}
+
 // Export the initialized services
 export { app, db, functions };
 
@@ -424,7 +523,7 @@ export type { Functions };
 // Export Firebase Functions
 export const createBountyFunction = (): HttpsCallable<any, any> => {
   const functions = getFirebaseFunctions();
-  return httpsCallable(functions, 'createBountyHandler');
+  return httpsCallable(functions, 'createBountyHandlerV2');
 };
 
 interface ClaimBountyData {

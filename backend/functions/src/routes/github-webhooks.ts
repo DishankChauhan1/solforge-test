@@ -31,6 +31,11 @@ interface PullRequestPayload {
         html_url: string;
       };
     };
+    user: {
+      login: string;
+      id: number;
+      avatar_url: string;
+    };
   };
   repository: {
     full_name: string;
@@ -357,6 +362,10 @@ async function handleNewPullRequest(pullRequest: PullRequestPayload['pull_reques
     }
   }
   
+  // Store the GitHub username from the PR for later verification
+  const githubUsername = pullRequest.user.login;
+  console.log(`PR created by GitHub user: ${githubUsername}`);
+  
   // If we found an issue number, construct the issue URL
   if (issueNumber) {
     const repoFullName = repository.full_name;
@@ -369,11 +378,12 @@ async function handleNewPullRequest(pullRequest: PullRequestPayload['pull_reques
     if (bounty) {
       console.log(`Found bounty ${bounty.id} for issue #${issueNumber}`);
       
-      // Update the bounty with PR information
-      await updateBountyWithPR(bounty.id, pullRequest.html_url);
+      // Update the bounty with PR information and the GitHub username
+      await updateBountyWithPR(bounty.id, pullRequest.html_url, githubUsername);
       await updateBountyStatus(bounty.id, 'in_progress', {
         prSubmittedAt: new Date().toISOString(),
-        prNumber: pullRequest.number
+        prNumber: pullRequest.number,
+        githubUsername: githubUsername
       });
       
       console.log(`Updated bounty ${bounty.id} with PR ${pullRequest.html_url} and status 'in_progress'`);
@@ -397,11 +407,12 @@ async function handleNewPullRequest(pullRequest: PullRequestPayload['pull_reques
     if (openBounty) {
       console.log(`Found open bounty ${openBounty.id} in repository`);
       
-      // Update the bounty with PR information
-      await updateBountyWithPR(openBounty.id, pullRequest.html_url);
+      // Update the bounty with PR information and the GitHub username
+      await updateBountyWithPR(openBounty.id, pullRequest.html_url, githubUsername);
       await updateBountyStatus(openBounty.id, 'in_progress', {
         prSubmittedAt: new Date().toISOString(),
-        prNumber: pullRequest.number
+        prNumber: pullRequest.number,
+        githubUsername: githubUsername
       });
       
       console.log(`Updated bounty ${openBounty.id} with PR ${pullRequest.html_url} and status 'in_progress'`);

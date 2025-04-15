@@ -116,8 +116,12 @@ export function CreateBountyForm() {
         throw new Error('Please fill in all required fields');
       }
 
-      // Create issue hash
-      const issueHash = createHash('sha256').update(formData.issueUrl).digest('hex');
+      // Use the issue URL and add a random element to create a unique hash
+      const randomSuffix = Math.random().toString(36).substring(2, 10);
+      const issueHashInput = `${formData.issueUrl}-${randomSuffix}-${Date.now()}`;
+      console.log('Creating hash with input:', issueHashInput);
+      const issueHash = createHash('sha256').update(issueHashInput).digest('hex');
+      console.log('Issue hash:', issueHash);
 
       // Convert amount to lamports/smallest unit
       const amount = formData.currency === 'SOL' 
@@ -132,23 +136,72 @@ export function CreateBountyForm() {
 
       // Create and send transaction
       const transaction = new Transaction();
-      const lockInstruction = await createBountyInstruction({
-        issueHash,
-        amount,
-        currency: formData.currency,
-        creator: publicKey,
-      });
       
-      transaction.add(lockInstruction);
+      // Make sure the amount is reasonable (minimum of 0.001 SOL)
+      const minAmount = formData.currency === 'SOL' ? 0.001 * LAMPORTS_PER_SOL : 0.001 * 1e6;
+      if (amount < minAmount) {
+        throw new Error(`Amount must be at least 0.001 ${formData.currency}`);
+      }
       
+      // Verify that we're not exceeding maximum amount
+      const maxAmount = formData.currency === 'SOL' ? 100 * LAMPORTS_PER_SOL : 100 * 1e6;
+      if (amount > maxAmount) {
+        throw new Error(`Amount cannot exceed 100 ${formData.currency}`);
+      }
+      
+      console.log('Transaction amount (in smallest units):', amount);
+      
+      try {
+        const lockInstruction = await createBountyInstruction({
+          issueHash,
+          amount,
+          currency: formData.currency,
+          creator: publicKey,
+        });
+        
+        transaction.add(lockInstruction);
+      } catch (err) {
+        console.error('Error creating instruction:', err);
+        throw new Error('Failed to create transaction instruction. Please try again.');
+      }
+      
+      // Get recent blockhash before simulation
+      const blockhashResponse = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhashResponse.blockhash;
+      transaction.feePayer = publicKey;
+
       // Simulate transaction
       try {
         const simulation = await connection.simulateTransaction(transaction);
+        console.log('Simulation results:', {
+          logs: simulation.value.logs,
+          unitsConsumed: simulation.value.unitsConsumed,
+        });
+        
         if (simulation.value.err) {
+          console.error('Simulation failed with error:', simulation.value.err);
+          if (simulation.value.logs) {
+            console.error('Simulation logs:', simulation.value.logs.join('\n'));
+          }
           throw new Error(`Transaction simulation failed: ${simulation.value.err.toString()}`);
         }
-      } catch (err) {
-        console.error('Simulation error:', err);
+      } catch (err: any) {
+        console.error('Simulation error details:', {
+          message: err?.message,
+          cause: err?.cause,
+          stack: err?.stack,
+        });
+        
+        // Check if the error is a simulation error from the program
+        if (err?.message?.includes('custom program error')) {
+          throw new Error(`Smart contract error: ${err.message}`);
+        }
+        
+        // Check if it's a balance error
+        if (err?.message?.includes('insufficient funds') || err?.message?.includes('insufficient lamports')) {
+          throw new Error(`Insufficient ${formData.currency} balance to complete this transaction`);
+        }
+        
         throw new Error('Failed to simulate transaction. Please try again.');
       }
 
@@ -181,7 +234,9 @@ export function CreateBountyForm() {
 
       // Call Firebase Function to create bounty with metadata
       const createBounty = createBountyFunction();
-      const { data } = await createBounty({
+      
+      // Create a clean bounty data object without undefined values
+      const bountyMetadata: any = {
         title,
         issueUrl: formData.issueUrl,
         issueHash,
@@ -197,7 +252,14 @@ export function CreateBountyForm() {
         deadline: new Date(formData.deadline).toISOString(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
-      });
+      };
+      
+      // Only add tokenMint for USDC transactions
+      if (formData.currency === 'USDC') {
+        bountyMetadata.tokenMint = USDC_MINT.toBase58();
+      }
+      
+      const { data } = await createBounty(bountyMetadata);
 
       console.log('Bounty creation result:', data);
       router.push('/bounties');

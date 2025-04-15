@@ -69,7 +69,22 @@ exports.getBounty = getBounty;
 const createBounty = async (data) => {
     const db = getDb();
     const now = admin.firestore.Timestamp.now();
-    const bountyData = Object.assign(Object.assign({}, data), { createdAt: now, updatedAt: now });
+    // Create a clean data object without undefined values
+    const bountyData = {
+        title: data.title,
+        description: data.description,
+        amount: data.amount,
+        issueUrl: data.issueUrl,
+        repositoryUrl: data.repositoryUrl,
+        createdBy: data.createdBy,
+        status: data.status,
+        createdAt: now,
+        updatedAt: now
+    };
+    // Only add tokenMint if defined
+    if (data.tokenMint) {
+        bountyData.tokenMint = data.tokenMint;
+    }
     const docRef = await db.collection('bounties').add(bountyData);
     const doc = await docRef.get();
     const savedData = doc.data();
@@ -166,14 +181,18 @@ const getBountyByRepo = async (repositoryUrl) => {
 };
 exports.getBountyByRepo = getBountyByRepo;
 // Update a bounty with PR information
-const updateBountyWithPR = async (bountyId, prUrl) => {
+const updateBountyWithPR = async (bountyId, prUrl, githubUsername) => {
     const db = getDb();
     const bountyRef = db.collection('bounties').doc(bountyId);
     const now = admin.firestore.Timestamp.now();
-    await bountyRef.update({
+    const updateData = {
         claimPR: prUrl,
         updatedAt: now
-    });
+    };
+    if (githubUsername) {
+        updateData.prSubmitterGithubUsername = githubUsername;
+    }
+    await bountyRef.update(updateData);
 };
 exports.updateBountyWithPR = updateBountyWithPR;
 //# sourceMappingURL=firestore.js.map

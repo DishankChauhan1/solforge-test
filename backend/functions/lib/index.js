@@ -31,12 +31,13 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.webhookTest = exports.githubWebhookHandler = exports.getBountyById = exports.getAllBounties = exports.claimBountyHandler = exports.createBountyHandler = exports.verifyPR = void 0;
+exports.webhookTest = exports.githubWebhookHandler = exports.getBountyById = exports.getAllBounties = exports.claimBountyHandler = exports.createBountyHandlerV2 = exports.createBountyHandler = exports.verifyPR = void 0;
 const admin = __importStar(require("firebase-admin"));
 const v2_1 = require("firebase-functions/v2");
 const bounties_1 = require("./routes/bounties");
 Object.defineProperty(exports, "verifyPR", { enumerable: true, get: function () { return bounties_1.verifyPR; } });
 Object.defineProperty(exports, "createBountyHandler", { enumerable: true, get: function () { return bounties_1.createBountyHandler; } });
+Object.defineProperty(exports, "createBountyHandlerV2", { enumerable: true, get: function () { return bounties_1.createBountyHandlerV2; } });
 Object.defineProperty(exports, "claimBountyHandler", { enumerable: true, get: function () { return bounties_1.claimBountyHandler; } });
 Object.defineProperty(exports, "getAllBounties", { enumerable: true, get: function () { return bounties_1.getAllBounties; } });
 Object.defineProperty(exports, "getBountyById", { enumerable: true, get: function () { return bounties_1.getBountyById; } });

@@ -7,6 +7,7 @@ import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { clusterApiUrl } from '@solana/web3.js';
 import { useMemo } from 'react';
 import { AuthProvider } from '@/context/AuthProvider';
+import { Toaster } from 'react-hot-toast';
 
 require('@solana/wallet-adapter-react-ui/styles.css');
 
@@ -21,6 +22,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <WalletModalProvider>
           <AuthProvider>
             {children}
+            <Toaster position="bottom-right" />
           </AuthProvider>
         </WalletModalProvider>
       </WalletProvider>

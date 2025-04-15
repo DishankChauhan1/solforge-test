@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.verifyPR = exports.claimBountyHandler = exports.createBountyHandler = exports.getBountyById = exports.getAllBounties = void 0;
+exports.verifyPR = exports.claimBountyHandler = exports.createBountyHandlerV2 = exports.createBountyHandler = exports.getBountyById = exports.getAllBounties = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("../services/firestore");
 const functionConfig = {
@@ -50,16 +50,57 @@ exports.createBountyHandler = (0, https_1.onCall)(functionConfig, async (request
         throw new https_1.HttpsError('invalid-argument', 'Missing required fields');
     }
     try {
-        const bounty = await (0, firestore_1.createBounty)({
+        // Create a clean data object without undefined values
+        const bountyData = {
             title,
             description,
             amount,
-            tokenMint,
             issueUrl,
             repositoryUrl,
             createdBy: request.auth.uid,
             status: 'open'
-        });
+        };
+        // Only add tokenMint if it's defined
+        if (tokenMint) {
+            Object.assign(bountyData, { tokenMint });
+        }
+        const bounty = await (0, firestore_1.createBounty)(bountyData);
+        return { success: true, bounty };
+    }
+    catch (error) {
+        console.error('Error creating bounty:', error);
+        throw new https_1.HttpsError('internal', 'Failed to create bounty');
+    }
+});
+// Create new bounty V2 (fix for undefined values)
+exports.createBountyHandlerV2 = (0, https_1.onCall)(functionConfig, async (request) => {
+    if (!request.auth) {
+        throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
+    }
+    const data = request.data;
+    // Log what we received
+    console.log('Received create bounty data:', JSON.stringify(data));
+    // Validate required fields
+    if (!data.title || !data.description || !data.amount || !data.issueUrl || !data.repositoryUrl) {
+        throw new https_1.HttpsError('invalid-argument', 'Missing required fields');
+    }
+    try {
+        // Create a clean data object without undefined values
+        const bountyData = {
+            title: data.title,
+            description: data.description,
+            amount: Number(data.amount),
+            issueUrl: data.issueUrl,
+            repositoryUrl: data.repositoryUrl,
+            createdBy: request.auth.uid,
+            status: 'open'
+        };
+        // Only add tokenMint if it's defined
+        if (data.tokenMint) {
+            Object.assign(bountyData, { tokenMint: data.tokenMint });
+        }
+        console.log('Creating bounty with:', JSON.stringify(bountyData));
+        const bounty = await (0, firestore_1.createBounty)(bountyData);
         return { success: true, bounty };
     }
     catch (error) {

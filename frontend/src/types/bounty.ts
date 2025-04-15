@@ -24,6 +24,7 @@ export interface IBounty {
   updatedAt: Timestamp;
   claimedBy?: string;
   claimedAt?: Timestamp;
+  prUrl?: string;
 }
 
 export interface IBountySubmission {

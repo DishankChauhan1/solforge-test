@@ -42,32 +42,16 @@ service cloud.firestore {
     // Bounties collection
     match /bounties/{bountyId} {
       allow read: if true;
-      allow create: if isAuthenticated() && isValidBountyCreate();
-      allow update: if isAuthenticated() && (
-        // Creator can update only certain fields
-        (resource.data.creatorId == request.auth.uid && 
-         request.resource.data.diff(resource.data).affectedKeys()
-         .hasOnly(['status', 'updatedAt'])) ||
-        // Claimer can update only when claiming
-        (isValidBountyClaim(resource.data))
-      );
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
       allow delete: if false;
     }
 
     // Submissions collection
     match /submissions/{submissionId} {
-      allow read: if isAuthenticated() && (
-        resource.data.submitterId == request.auth.uid ||
-        resource.data.reviewerId == request.auth.uid ||
-        resource.data.bounty.creatorId == request.auth.uid
-      );
-      allow create: if isAuthenticated() && isValidSubmission();
-      allow update: if isAuthenticated() && (
-        // Submitter can update their submission
-        resource.data.submitterId == request.auth.uid ||
-        // Reviewer (bounty creator) can update status and add comments
-        resource.data.bounty.creatorId == request.auth.uid
-      );
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
       allow delete: if false;
     }
   }

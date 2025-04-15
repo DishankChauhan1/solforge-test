@@ -74,17 +74,74 @@ export const createBountyHandler = onCall(functionConfig, async (request) => {
   }
 
   try {
-    const bounty = await createBounty({
+    // Create a clean data object without undefined values
+    const bountyData = {
       title,
       description,
       amount,
-      tokenMint,
       issueUrl,
       repositoryUrl,
       createdBy: request.auth.uid,
-      status: 'open'
-    });
+      status: 'open' as const
+    };
 
+    // Only add tokenMint if it's defined
+    if (tokenMint) {
+      Object.assign(bountyData, { tokenMint });
+    }
+
+    const bounty = await createBounty(bountyData);
+    return { success: true, bounty };
+  } catch (error) {
+    console.error('Error creating bounty:', error);
+    throw new HttpsError(
+      'internal',
+      'Failed to create bounty'
+    );
+  }
+});
+
+// Create new bounty V2 (fix for undefined values)
+export const createBountyHandlerV2 = onCall(functionConfig, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError(
+      'unauthenticated',
+      'User must be authenticated'
+    );
+  }
+
+  const data = request.data as any;
+  
+  // Log what we received
+  console.log('Received create bounty data:', JSON.stringify(data));
+
+  // Validate required fields
+  if (!data.title || !data.description || !data.amount || !data.issueUrl || !data.repositoryUrl) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Missing required fields'
+    );
+  }
+
+  try {
+    // Create a clean data object without undefined values
+    const bountyData = {
+      title: data.title,
+      description: data.description,
+      amount: Number(data.amount),
+      issueUrl: data.issueUrl,
+      repositoryUrl: data.repositoryUrl,
+      createdBy: request.auth.uid,
+      status: 'open' as const
+    };
+
+    // Only add tokenMint if it's defined
+    if (data.tokenMint) {
+      Object.assign(bountyData, { tokenMint: data.tokenMint });
+    }
+
+    console.log('Creating bounty with:', JSON.stringify(bountyData));
+    const bounty = await createBounty(bountyData);
     return { success: true, bounty };
   } catch (error) {
     console.error('Error creating bounty:', error);
