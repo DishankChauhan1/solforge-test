@@ -1,14 +1,19 @@
 {
   "compilerOptions": {
-    "module": "NodeNext",
+    "module": "node16",
     "esModuleInterop": true,
-    "moduleResolution": "nodenext",
+    "moduleResolution": "node16",
     "noImplicitReturns": true,
     "noUnusedLocals": true,
     "outDir": "lib",
     "sourceMap": true,
     "strict": true,
-    "target": "es2017"
+    "target": "es2017",
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "typeRoots": ["./node_modules/@types", "./src/types"],
+    "isolatedModules": true
   },
   "compileOnSave": true,
   "include": [

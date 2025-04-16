@@ -1,18 +1,20 @@
 import { Connection, PublicKey, Keypair, Transaction, SystemProgram } from "@solana/web3.js";
 import { web3 } from "@coral-xyz/anchor";
+import { getSolanaConfig } from '../config';
 
+const solanaConfig = getSolanaConfig();
 
 // Initialize Solana connection
-const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com");
+const connection = new Connection(solanaConfig.rpcUrl);
 
-// Load program ID from environment variable
-const PROGRAM_ID = new PublicKey(process.env.PROGRAM_ID || "dGBsodouKiYTUyFudwbHdfXJaHWbUEyXhyw7jj4BBeY");
+// Load program ID from config
+const PROGRAM_ID = new PublicKey(solanaConfig.programId);
 
-// Load admin wallet from environment
+// Load admin wallet from config
 const loadAdminWallet = (): Keypair => {
-  const privateKey = process.env.ADMIN_PRIVATE_KEY;
+  const privateKey = solanaConfig.adminPrivateKey;
   if (!privateKey) {
-    throw new Error("Admin private key not found in environment variables");
+    throw new Error("Admin private key not found in configuration");
   }
   return Keypair.fromSecretKey(Buffer.from(privateKey, "base64"));
 };
@@ -121,7 +123,10 @@ export const completeBounty = async (
   bountyAccountPublicKey: string,
   claimantPublicKey: string,
   prUrl: string = ''
-): Promise<{ signature: string }> => {
+): Promise<{
+    success: boolean;
+    signature: string 
+}> => {
   try {
     const adminWallet = loadAdminWallet();
     const bountyPubkey = new PublicKey(bountyAccountPublicKey);
@@ -172,8 +177,8 @@ export const completeBounty = async (
     );
 
     console.log(`Bounty completion transaction sent. Signature: ${signature}`);
-    
-    return { signature };
+   
+    return { success: true, signature };
   } catch (error) {
     console.error("Error completing bounty:", error);
     throw error;

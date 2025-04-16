@@ -1,7 +1,6 @@
+use num_derive::FromPrimitive;
 use solana_program::{program_error::ProgramError, decode_error::DecodeError, msg};
 use thiserror::Error;
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 
 /// Errors that may be returned by the Bounty program.
 #[derive(Error, Debug, Clone, PartialEq, FromPrimitive)]

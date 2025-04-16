@@ -52,6 +52,7 @@ export const getUser = async (userId: string): Promise<UserDocument | null> => {
 
 // Bounty Operations
 export interface Bounty {
+  prUrl: string;
   id: string;
   title: string;
   description: string;

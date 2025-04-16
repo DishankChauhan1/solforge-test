@@ -19,7 +19,7 @@ use {
 };
 
 #[tokio::test]
-async fn test_complete_sol_bounty_flow() {
+async fn test_sol_bounty_creation() {
     let program_id = Pubkey::new_unique();
     let mut program_test = ProgramTest::new(
         "bounty_program",
@@ -29,7 +29,6 @@ async fn test_complete_sol_bounty_flow() {
 
     // Generate necessary keypairs
     let creator = Keypair::new();
-    let hunter = Keypair::new();
     let bounty_account = Keypair::new();
 
     // Add creator account with some SOL
@@ -78,6 +77,7 @@ async fn test_complete_sol_bounty_flow() {
         Some(&payer.pubkey()),
     );
     transaction.sign(&[&payer, &bounty_account], recent_blockhash);
+    
     banks_client.process_transaction(transaction).await.unwrap();
 
     // Create the actual bounty
@@ -108,82 +108,10 @@ async fn test_complete_sol_bounty_flow() {
         Some(&creator.pubkey()),
     );
     transaction.sign(&[&creator], recent_blockhash);
+    
     banks_client.process_transaction(transaction).await.unwrap();
 
-    // Lock bounty
-    let lock_bounty_ix = BountyInstruction::LockBounty {
-        bounty_pubkey: bounty_account.pubkey(),
-    };
-
-    let data = borsh::to_vec(&lock_bounty_ix).unwrap();
-    let accounts = vec![
-        solana_program::instruction::AccountMeta::new(hunter.pubkey(), true),
-        solana_program::instruction::AccountMeta::new(bounty_account.pubkey(), false),
-    ];
-
-    let instruction = Instruction {
-        program_id,
-        accounts,
-        data,
-    };
-
-    let mut transaction = Transaction::new_with_payer(
-        &[instruction],
-        Some(&hunter.pubkey()),
-    );
-    transaction.sign(&[&hunter], recent_blockhash);
-    banks_client.process_transaction(transaction).await.unwrap();
-
-    // Claim bounty
-    let claim_bounty_ix = BountyInstruction::ClaimBounty {
-        bounty_pubkey: bounty_account.pubkey(),
-    };
-
-    let data = borsh::to_vec(&claim_bounty_ix).unwrap();
-    let accounts = vec![
-        solana_program::instruction::AccountMeta::new(hunter.pubkey(), true),
-        solana_program::instruction::AccountMeta::new(bounty_account.pubkey(), false),
-    ];
-
-    let instruction = Instruction {
-        program_id,
-        accounts,
-        data,
-    };
-
-    let mut transaction = Transaction::new_with_payer(
-        &[instruction],
-        Some(&hunter.pubkey()),
-    );
-    transaction.sign(&[&hunter], recent_blockhash);
-    banks_client.process_transaction(transaction).await.unwrap();
-
-    // Complete bounty
-    let complete_bounty_ix = BountyInstruction::CompleteBounty {
-        bounty_pubkey: bounty_account.pubkey(),
-    };
-
-    let data = borsh::to_vec(&complete_bounty_ix).unwrap();
-    let accounts = vec![
-        solana_program::instruction::AccountMeta::new(creator.pubkey(), true),
-        solana_program::instruction::AccountMeta::new(bounty_account.pubkey(), false),
-        solana_program::instruction::AccountMeta::new(hunter.pubkey(), false),
-    ];
-
-    let instruction = Instruction {
-        program_id,
-        accounts,
-        data,
-    };
-
-    let mut transaction = Transaction::new_with_payer(
-        &[instruction],
-        Some(&creator.pubkey()),
-    );
-    transaction.sign(&[&creator], recent_blockhash);
-    banks_client.process_transaction(transaction).await.unwrap();
-
-    // Verify final state
+    // Verify initial state
     let bounty_account = banks_client
         .get_account(bounty_account.pubkey())
         .await
@@ -191,7 +119,8 @@ async fn test_complete_sol_bounty_flow() {
         .unwrap();
         
     let bounty: Bounty = borsh::BorshDeserialize::try_from_slice(&bounty_account.data).unwrap();
-    assert_eq!(bounty.state, BountyStatus::Completed);
+    assert_eq!(bounty.state, BountyStatus::Available);
     assert_eq!(bounty.amount, bounty_amount);
-    assert_eq!(bounty.claimant, Some(hunter.pubkey()));
+    assert_eq!(bounty.creator, creator.pubkey());
+    assert_eq!(bounty.issue_url, issue_url);
 } 

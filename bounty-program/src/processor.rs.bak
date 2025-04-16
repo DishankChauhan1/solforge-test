@@ -616,51 +616,79 @@ impl Processor {
                 let reward_amount = bounty.amount_after_fee();
                 
                 // If fee collector account is provided, transfer the fee
-                if let Some(fee_collector) = bounty.fee_collector {
-                    let fee_account_info = next_account_info(account_info_iter)?;
+                if let Some(_fee_collector) = bounty.fee_collector {
+                    let fee_token_account_info = next_account_info(account_info_iter)?;
                     
-                    // Verify fee account matches the one in the bounty
-                    if fee_account_info.key != &fee_collector {
-                        msg!("Fee collector account doesn't match bounty");
-                        return Err(ProgramError::InvalidArgument);
-                    }
+                    // Transfer fee to the fee collector's token account
+                    invoke_signed(
+                        &token_instruction::transfer(
+                            token_program_info.key,
+                            bounty_token_info.key,
+                            fee_token_account_info.key,
+                            &pda,
+                            &[],
+                            fee_amount,
+                        )?,
+                        &[
+                            bounty_token_info.clone(),
+                            fee_token_account_info.clone(),
+                            webhook_authority_info.clone(),
+                            token_program_info.clone(),
+                        ],
+                        &[&[b"bounty", bounty_info.key.as_ref(), &[bump_seed]]],
+                    )?;
                     
-                    // Transfer fee to the fee collector
-                    **fee_account_info.lamports.borrow_mut() = fee_account_info.lamports()
-                        .checked_add(fee_amount)
-                        .ok_or(BountyError::Overflow)?;
-                    
-                    msg!("Fee of {} lamports paid to fee collector", fee_amount);
+                    msg!("Fee of {} tokens paid to fee collector", fee_amount);
                 }
                 
                 // Transfer reward amount to claimant
-                **reward_account_info.lamports.borrow_mut() = reward_account_info.lamports()
-                    .checked_add(reward_amount)
-                    .ok_or(BountyError::Overflow)?;
+                invoke_signed(
+                    &token_instruction::transfer(
+                        token_program_info.key,
+                        bounty_token_info.key,
+                        claimant_token_account_info.key,
+                        &pda,
+                        &[],
+                        reward_amount,
+                    )?,
+                    &[
+                        bounty_token_info.clone(),
+                        claimant_token_account_info.clone(),
+                        webhook_authority_info.clone(),
+                        token_program_info.clone(),
+                    ],
+                    &[&[b"bounty", bounty_info.key.as_ref(), &[bump_seed]]],
+                )?;
                 
-                // Reduce the bounty account's lamports
-                **bounty_info.lamports.borrow_mut() = bounty_info.lamports()
-                    .checked_sub(bounty.amount)
-                    .ok_or(BountyError::Overflow)?;
-                
-                msg!("Reward of {} lamports paid to claimer", reward_amount);
+                msg!("Reward of {} tokens paid to claimer", reward_amount);
             } else {
                 // No fee, transfer the full amount
-                **reward_account_info.lamports.borrow_mut() = reward_account_info.lamports()
-                    .checked_add(bounty.amount)
-                    .ok_or(BountyError::Overflow)?;
-                **bounty_info.lamports.borrow_mut() = bounty_info.lamports()
-                    .checked_sub(bounty.amount)
-                    .ok_or(BountyError::Overflow)?;
+                invoke_signed(
+                    &token_instruction::transfer(
+                        token_program_info.key,
+                        bounty_token_info.key,
+                        claimant_token_account_info.key,
+                        &pda,
+                        &[],
+                        bounty.amount,
+                    )?,
+                    &[
+                        bounty_token_info.clone(),
+                        claimant_token_account_info.clone(),
+                        webhook_authority_info.clone(),
+                        token_program_info.clone(),
+                    ],
+                    &[&[b"bounty", bounty_info.key.as_ref(), &[bump_seed]]],
+                )?;
             }
         } else {
             // Handle token transfers with fees for SPL tokens
-            let _token_program_info = next_account_info(account_info_iter)?;
-            let _bounty_token_account_info = next_account_info(account_info_iter)?;
-            let _claimant_token_account_info = next_account_info(account_info_iter)?;
+            let token_program_info = next_account_info(account_info_iter)?;
+            let bounty_token_account_info = next_account_info(account_info_iter)?;
+            let claimant_token_account_info = next_account_info(account_info_iter)?;
             
             // Create PDA for token transfers
-            let (_pda, _bump_seed) = Pubkey::find_program_address(
+            let (pda, bump_seed) = Pubkey::find_program_address(
                 &[b"bounty", bounty_info.key.as_ref()],
                 program_id,
             );
@@ -671,42 +699,70 @@ impl Processor {
                 let reward_amount = bounty.amount_after_fee();
                 
                 // If fee collector account is provided, transfer the fee
-                if let Some(fee_collector) = bounty.fee_collector {
-                    let fee_account_info = next_account_info(account_info_iter)?;
+                if let Some(_fee_collector) = bounty.fee_collector {
+                    let fee_token_account_info = next_account_info(account_info_iter)?;
                     
-                    // Verify fee account matches the one in the bounty
-                    if fee_account_info.key != &fee_collector {
-                        msg!("Fee collector account doesn't match bounty");
-                        return Err(ProgramError::InvalidArgument);
-                    }
+                    // Transfer fee to the fee collector's token account
+                    invoke_signed(
+                        &token_instruction::transfer(
+                            token_program_info.key,
+                            bounty_token_account_info.key,
+                            fee_token_account_info.key,
+                            &pda,
+                            &[],
+                            fee_amount,
+                        )?,
+                        &[
+                            bounty_token_account_info.clone(),
+                            fee_token_account_info.clone(),
+                            webhook_authority_info.clone(),
+                            token_program_info.clone(),
+                        ],
+                        &[&[b"bounty", bounty_info.key.as_ref(), &[bump_seed]]],
+                    )?;
                     
-                    // Transfer fee to the fee collector
-                    **fee_account_info.lamports.borrow_mut() = fee_account_info.lamports()
-                        .checked_add(fee_amount)
-                        .ok_or(BountyError::Overflow)?;
-                    
-                    msg!("Fee of {} lamports paid to fee collector", fee_amount);
+                    msg!("Fee of {} tokens paid to fee collector", fee_amount);
                 }
                 
                 // Transfer reward amount to claimant
-                **reward_account_info.lamports.borrow_mut() = reward_account_info.lamports()
-                    .checked_add(reward_amount)
-                    .ok_or(BountyError::Overflow)?;
+                invoke_signed(
+                    &token_instruction::transfer(
+                        token_program_info.key,
+                        bounty_token_account_info.key,
+                        claimant_token_account_info.key,
+                        &pda,
+                        &[],
+                        reward_amount,
+                    )?,
+                    &[
+                        bounty_token_account_info.clone(),
+                        claimant_token_account_info.clone(),
+                        webhook_authority_info.clone(),
+                        token_program_info.clone(),
+                    ],
+                    &[&[b"bounty", bounty_info.key.as_ref(), &[bump_seed]]],
+                )?;
                 
-                // Reduce the bounty account's lamports
-                **bounty_info.lamports.borrow_mut() = bounty_info.lamports()
-                    .checked_sub(bounty.amount)
-                    .ok_or(BountyError::Overflow)?;
-                
-                msg!("Reward of {} lamports paid to claimer", reward_amount);
+                msg!("Reward of {} tokens paid to claimer", reward_amount);
             } else {
                 // No fee, transfer the full amount
-                **reward_account_info.lamports.borrow_mut() = reward_account_info.lamports()
-                    .checked_add(bounty.amount)
-                    .ok_or(BountyError::Overflow)?;
-                **bounty_info.lamports.borrow_mut() = bounty_info.lamports()
-                    .checked_sub(bounty.amount)
-                    .ok_or(BountyError::Overflow)?;
+                invoke_signed(
+                    &token_instruction::transfer(
+                        token_program_info.key,
+                        bounty_token_account_info.key,
+                        claimant_token_account_info.key,
+                        &pda,
+                        &[],
+                        bounty.amount,
+                    )?,
+                    &[
+                        bounty_token_account_info.clone(),
+                        claimant_token_account_info.clone(),
+                        webhook_authority_info.clone(),
+                        token_program_info.clone(),
+                    ],
+                    &[&[b"bounty", bounty_info.key.as_ref(), &[bump_seed]]],
+                )?;
             }
         }
         

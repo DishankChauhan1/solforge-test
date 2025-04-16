@@ -5,11 +5,21 @@ import * as crypto from 'crypto';
 import { getBountyByPR, updateBountyStatus, getBountyByIssueUrl, getBountyByRepo, updateBountyWithPR, getBounty, getUser, updateBountyPayment } from '../services/firestore';
 import { BountyStatus } from '../types/bounty';
 import { completeBounty } from '../services/solana';
+import { getConfig, getGitHubConfig, getLoggingConfig } from '../config';
 // import * as functions from 'firebase-functions';
 // import { defineString, defineSecret } from 'firebase-functions/params';
 
-// Get the webhook secret from environment variables or Firebase config
-const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'ac95b2fd7dcaad462a6df4eba79b48017556fcba';
+// Replace hardcoded values with config
+const config = getConfig();
+const githubConfig = getGitHubConfig();
+const loggingConfig = getLoggingConfig();
+
+// Update logging configuration
+if (loggingConfig.verbose) {
+  // Firebase logger doesn't have a 'level' property, so use info to indicate verbose mode is on
+  logger.info('Verbose logging enabled');
+  // When verbose is true, we'll log additional details throughout the code
+}
 
 // Maximum number of payment retry attempts
 const MAX_PAYMENT_RETRIES = 3;
@@ -213,103 +223,18 @@ interface PullRequestReviewEvent {
   sender: GitHubUser;
 }
 
-/**
- * Verify that the webhook is from GitHub by checking the signature
- * This is a critical security function that validates the webhook payload
- */
-function verifyGitHubWebhook(
-  signature: string | undefined,
-  signatureSha256: string | undefined,
-  rawBody: string | Buffer,
-): boolean {
-  logger.info("Verifying GitHub webhook signature...");
-  
-  // If no signature provided, verification fails
-  if (!signature && !signatureSha256) {
-    logger.error("No signature provided in the request");
+// Verify GitHub webhook signature
+function verifyGitHubWebhook(req: Request): boolean {
+  const signature = req.headers['x-hub-signature-256'];
+  const rawBody = (req as any).rawBody;
+
+  if (!signature || !rawBody || typeof signature !== 'string') {
     return false;
   }
 
-  try {
-    const webhookSecret = WEBHOOK_SECRET;
-    
-    if (!webhookSecret) {
-      logger.error("No webhook secret configured");
-      return false;
-    }
-
-    // Convert rawBody to string if it's a Buffer
-    const payloadString = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
-    
-    logger.info("Using webhook secret from environment variables");
-    logger.info(`Webhook secret (first 4 chars): ${webhookSecret.substring(0, 4)}...`);
-    logger.info(`Payload type: ${typeof rawBody}`);
-    logger.info(`Payload string length: ${payloadString.length} chars`);
-    
-    // Try SHA-256 signature first (preferred)
-    if (signatureSha256) {
-      logger.info(`Received SHA-256 signature: ${signatureSha256}`);
-      const [algorithm, signatureValue] = signatureSha256.split('=');
-      
-      if (!algorithm || !signatureValue) {
-        logger.error("Invalid SHA-256 signature format");
-        return false;
-      }
-
-      const hmac = crypto.createHmac('sha256', webhookSecret);
-      hmac.update(payloadString);
-      const digest = hmac.digest('hex');
-      logger.info(`Calculated digest (SHA-256): ${digest}`);
-      logger.info(`Received signature value (SHA-256): ${signatureValue}`);
-      
-      try {
-        const result = crypto.timingSafeEqual(
-          Buffer.from(digest, 'hex'),
-          Buffer.from(signatureValue, 'hex')
-        );
-        
-        logger.info(`SHA-256 signature verification result: ${result}`);
-        if (result) return true;
-      } catch (err) {
-        logger.error("Error comparing SHA-256 signatures:", err);
-      }
-    }
-
-    // Fall back to SHA-1 signature if SHA-256 fails or isn't provided
-    if (signature) {
-      logger.info(`Received SHA-1 signature: ${signature}`);
-      const [algorithm, signatureValue] = signature.split('=');
-      
-      if (!algorithm || !signatureValue) {
-        logger.error("Invalid SHA-1 signature format");
-        return false;
-      }
-
-      const hmac = crypto.createHmac('sha1', webhookSecret);
-      hmac.update(payloadString);
-      const digest = hmac.digest('hex');
-      logger.info(`Calculated digest (SHA-1): ${digest}`);
-      logger.info(`Received signature value (SHA-1): ${signatureValue}`);
-      
-      try {
-        const result = crypto.timingSafeEqual(
-          Buffer.from(digest, 'hex'),
-          Buffer.from(signatureValue, 'hex')
-        );
-        
-        logger.info(`SHA-1 signature verification result: ${result}`);
-        return result;
-      } catch (err) {
-        logger.error("Error comparing SHA-1 signatures:", err);
-        return false;
-      }
-    }
-
-    return false;
-  } catch (error) {
-    logger.error("Error verifying webhook signature:", error);
-    return false;
-  }
+  const hmac = crypto.createHmac('sha256', githubConfig.webhookSecret);
+  const digest = 'sha256=' + hmac.update(rawBody).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
 }
 
 /**
@@ -677,133 +602,63 @@ async function handlePullRequestReviewEvent(payload: PullRequestReviewEvent) {
 }
 
 // Main webhook handler function
-export const githubWebhookHandler = onRequest({
-  maxInstances: 10,
-  timeoutSeconds: 60,
-  region: 'us-central1',
-  // Add Cloud Run compatibility settings
-  concurrency: 80,
-  cpu: 1,
-  memory: '256MiB',
-  minInstances: 0,
-}, async (request: WebhookRequest, response: Response) => {
-  // Get the raw body for signature verification
-  // If we don't have rawBody, try to get it from the request
-  if (!request.rawBody && request.body) {
-    logger.warn('Raw body not provided, using stringified body instead (this is not ideal)');
-  }
-  
-  logger.info('Received GitHub webhook request', {
-    method: request.method,
-    path: request.path,
-    query: request.query,
-    eventType: request.headers['x-github-event']
-  });
-
-  // Log all headers for debugging
-  logger.info('Request headers:', request.headers);
-
-  // Only allow POST requests
-  if (request.method !== 'POST') {
-    logger.warn(`Invalid method: ${request.method}`);
-    response.status(405).send('Method Not Allowed');
+export const githubWebhookHandler = onRequest(async (req: Request, res: Response) => {
+  // Verify webhook signature
+  if (!verifyGitHubWebhook(req)) {
+    logger.error('Invalid webhook signature');
+    res.status(401).json({ error: 'Invalid signature' });
     return;
   }
 
-  const event = request.headers['x-github-event'] as string;
-  logger.info(`Received GitHub event: ${event}`);
+  const event = req.headers['x-github-event'];
+  const payload = req.body;
 
-  // Handle ping event (sent when webhook is created)
-  if (event === 'ping') {
-    logger.info('Received ping event');
-    response.status(200).send('Pong!');
-    return;
+  // Log event details if verbose logging is enabled
+  if (loggingConfig.verbose) {
+    logger.info('Received webhook event:', { event, payload });
   }
-
-  // Get signatures from headers
-  const signature = request.headers['x-hub-signature'] as string;
-  const signatureSha256 = request.headers['x-hub-signature-256'] as string;
-  
-  if (!signature && !signatureSha256) {
-    logger.error('No signature found in headers');
-    response.status(401).send('No signature provided');
-    return;
-  }
-
-  // Determine what to use for verification
-  let bodyToVerify: string | Buffer;
-  
-  if (request.rawBody) {
-    // Use rawBody if available (preferred)
-    bodyToVerify = request.rawBody;
-    logger.info('Using raw request body for verification');
-  } else {
-    // Fall back to stringified body if rawBody not available
-    bodyToVerify = JSON.stringify(request.body);
-    logger.warn('Raw body not available, using JSON.stringify(request.body) as fallback (less reliable)');
-  }
-  
-  // Log payload info for debugging
-  logger.info('Payload type:', typeof bodyToVerify);
-  if (Buffer.isBuffer(bodyToVerify)) {
-    logger.info('Payload size:', bodyToVerify.length);
-    logger.debug('Payload preview:', bodyToVerify.toString('utf8').substring(0, 100));
-  } else {
-    logger.info('Payload size:', bodyToVerify.length);
-    logger.debug('Payload preview:', bodyToVerify.substring(0, 100));
-  }
-  
-  // Verify the signature against the body
-  const isValidSignature = verifyGitHubWebhook(
-    signature,
-    signatureSha256,
-    bodyToVerify
-  );
-
-  if (!isValidSignature) {
-    logger.error('Invalid signature');
-    logger.error('Expected signatures:', {
-      sha1: signature,
-      sha256: signatureSha256
-    });
-    
-    // For debugging purposes, you can temporarily disable verification
-    // but this should NEVER be done in production
-    const BYPASS_VERIFICATION = false; // IMPORTANT: Always keep this as false in production
-    
-    if (BYPASS_VERIFICATION) {
-      logger.warn('⚠️ WARNING: Bypassing signature verification for debugging!');
-    } else {
-      response.status(401).send('Invalid signature');
-      return;
-    }
-  }
-
-  logger.info('Signature verified, processing webhook');
 
   try {
-    // Process pull request events
-    if (event === 'pull_request') {
-      logger.info('Processing pull request event');
-      await handlePullRequestEvent(request.body as PullRequestEvent);
-    }
-    
-    // Process pull request review events
-    else if (event === 'pull_request_review') {
-      logger.info('Processing pull request review event');
-      await handlePullRequestReviewEvent(request.body as PullRequestReviewEvent);
-    }
-    
-    // Log other event types but don't process them
-    else {
-      logger.info(`Received unhandled event type: ${event}`);
-    }
+    switch (event) {
+      case 'ping':
+        res.status(200).json({ message: 'Webhook configured successfully' });
+        return;
 
-    // Default success response
-    response.status(200).send('Webhook processed successfully');
+      case 'pull_request':
+        const prUrl = payload.pull_request.html_url;
+        const bounty = await getBountyByPR(prUrl);
+        
+        if (!bounty) {
+          res.status(400).json({ error: 'No bounty found for this PR' });
+          return;
+        }
+
+        if (payload.action === 'closed' && payload.pull_request.merged) {
+          // PR was merged, update bounty status to completed
+          await updateBountyStatus(bounty.id, 'completed');
+          res.status(200).json({ message: 'Bounty completed' });
+          return;
+        } else if (payload.action === 'opened') {
+          // New PR opened, update bounty status to in_progress
+          await updateBountyStatus(bounty.id, 'in_progress');
+          res.status(200).json({ message: 'Bounty status updated to in_progress' });
+          return;
+        }
+        break;
+
+      case 'pull_request_review':
+        logger.info('Processing pull request review event');
+        await handlePullRequestReviewEvent(payload as PullRequestReviewEvent);
+        res.status(200).json({ message: 'Event processed' });
+        return;
+
+      default:
+        res.status(400).json({ error: 'Unsupported event type' });
+        return;
+    }
   } catch (error) {
     logger.error('Error processing webhook:', error);
-    response.status(500).send('Error processing webhook');
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

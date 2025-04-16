@@ -155,7 +155,7 @@ impl BountyInstruction {
         repository_url: String,
         deadline: i64,
         fee_collector: Option<Pubkey>,
-        fee_percentage: u8,
+        _fee_percentage: u8,
     ) -> Result<Instruction, ProgramError> {
         let data = Self::CreateSolBounty {
             amount,

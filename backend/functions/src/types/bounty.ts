@@ -17,18 +17,17 @@ export type PaymentStatus =
 
 export interface PaymentInfo {
   status: PaymentStatus;
-  createdAt?: string;
-  updatedAt?: string;
-  processingStartedAt?: string;
+  amount: number;
+  tokenMint?: string;
+  recipientId: string;
+  transactionSignature?: string;
+  createdAt: string;
+  updatedAt: string;
   completedAt?: string;
   failedAt?: string;
-  transactionSignature?: string;
-  attempt?: number;
+  processingStartedAt?: string;
   lastError?: string;
-  lastErrorAt?: string;
-  nextRetryAt?: string;
-  notificationSent?: boolean;
-  notificationSentAt?: string;
+  attempt?: number;
 }
 
 export interface Bounty {
