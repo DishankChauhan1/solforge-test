@@ -29,8 +29,33 @@ const firebase_functions_1 = require("firebase-functions");
 const crypto = __importStar(require("crypto"));
 const functions = __importStar(require("firebase-functions"));
 const firestore_1 = require("../services/firestore");
+/**
+ * Helper function to safely access configuration properties
+ */
+function getConfigSafely(path, defaultValue = null) {
+    try {
+        const parts = path.split('.');
+        let current = functions.config() || {};
+        for (const part of parts) {
+            if (current === undefined || current === null || typeof current !== 'object') {
+                return defaultValue;
+            }
+            current = current[part];
+        }
+        return current !== undefined ? current : defaultValue;
+    }
+    catch (error) {
+        firebase_functions_1.logger.warn(`Error accessing config path ${path}:`, error);
+        return defaultValue;
+    }
+}
 // Get the GitHub App webhook secret from Firebase config or environment variables
-const GITHUB_APP_WEBHOOK_SECRET = functions.config().github.app_webhook_secret || process.env.GITHUB_APP_WEBHOOK_SECRET;
+const GITHUB_APP_WEBHOOK_SECRET = getConfigSafely('github.app_webhook_secret') || process.env.GITHUB_APP_WEBHOOK_SECRET || process.env.APP_WEBHOOK_SECRET;
+// Use a dummy webhook secret for local development if not configured
+if (!GITHUB_APP_WEBHOOK_SECRET) {
+    firebase_functions_1.logger.warn("GitHub webhook secret not properly configured. Using fallback for local development.");
+    firebase_functions_1.logger.warn("Set proper secrets before deploying to production.");
+}
 /**
  * Verify that the webhook is from GitHub by checking the signature
  */
@@ -42,7 +67,7 @@ function verifyGitHubWebhook(signature, signatureSha256, rawBody) {
         return false;
     }
     try {
-        const webhookSecret = GITHUB_APP_WEBHOOK_SECRET;
+        const webhookSecret = GITHUB_APP_WEBHOOK_SECRET || "dummy-secret-for-local-development-only";
         if (!webhookSecret) {
             firebase_functions_1.logger.error("No webhook secret configured");
             return false;
@@ -102,7 +127,6 @@ function verifyGitHubWebhook(signature, signatureSha256, rawBody) {
  * Handle pull request events from GitHub
  */
 async function handlePullRequestEvent(payload) {
-    var _a;
     firebase_functions_1.logger.info("Handling pull request event...");
     firebase_functions_1.logger.info(`Action: ${payload.action}`);
     firebase_functions_1.logger.info(`PR URL: ${payload.pull_request.html_url}`);
@@ -134,7 +158,7 @@ async function handlePullRequestEvent(payload) {
                     metadata = {
                         merged: true,
                         mergedAt: payload.pull_request.merged_at,
-                        mergedBy: (_a = payload.pull_request.merged_by) === null || _a === void 0 ? void 0 : _a.login
+                        mergedBy: payload.pull_request.merged_by?.login
                     };
                 }
                 else {

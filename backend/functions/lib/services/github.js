@@ -46,19 +46,20 @@ const extractPRDetails = (prUrl) => {
 };
 exports.extractPRDetails = extractPRDetails;
 const verifyPullRequest = async (prUrl, expectedAuthor) => {
-    var _a;
     const prDetails = (0, exports.extractPRDetails)(prUrl);
     if (!prDetails) {
         return { isValid: false, error: 'Invalid PR URL format' };
     }
     try {
-        const { data: pr } = await octokit.pulls.get(Object.assign({}, prDetails));
+        const { data: pr } = await octokit.pulls.get({
+            ...prDetails,
+        });
         // Check if PR is merged
         if (!pr.merged) {
             return { isValid: false, error: 'Pull request is not merged' };
         }
         // Check if author matches
-        if (((_a = pr.user) === null || _a === void 0 ? void 0 : _a.login.toLowerCase()) !== expectedAuthor.toLowerCase()) {
+        if (pr.user?.login.toLowerCase() !== expectedAuthor.toLowerCase()) {
             return { isValid: false, error: 'Pull request author does not match' };
         }
         return { isValid: true };

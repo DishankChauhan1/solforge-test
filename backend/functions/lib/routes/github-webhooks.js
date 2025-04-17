@@ -29,10 +29,19 @@ const firebase_functions_1 = require("firebase-functions");
 const crypto = __importStar(require("crypto"));
 const firestore_1 = require("../services/firestore");
 const solana_1 = require("../services/solana");
+const config_1 = require("../config");
 // import * as functions from 'firebase-functions';
 // import { defineString, defineSecret } from 'firebase-functions/params';
-// Get the webhook secret from environment variables or Firebase config
-const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'ac95b2fd7dcaad462a6df4eba79b48017556fcba';
+// Replace hardcoded values with config
+const config = (0, config_1.getConfig)();
+const githubConfig = (0, config_1.getGitHubConfig)();
+const loggingConfig = (0, config_1.getLoggingConfig)();
+// Update logging configuration
+if (loggingConfig.verbose) {
+    // Firebase logger doesn't have a 'level' property, so use info to indicate verbose mode is on
+    firebase_functions_1.logger.info('Verbose logging enabled');
+    // When verbose is true, we'll log additional details throughout the code
+}
 // Maximum number of payment retry attempts
 const MAX_PAYMENT_RETRIES = 3;
 // Payment status tracking (defined as enum values rather than just type)
@@ -43,81 +52,16 @@ var PaymentStatus;
     PaymentStatus["COMPLETED"] = "completed";
     PaymentStatus["FAILED"] = "failed";
 })(PaymentStatus || (PaymentStatus = {}));
-/**
- * Verify that the webhook is from GitHub by checking the signature
- * This is a critical security function that validates the webhook payload
- */
-function verifyGitHubWebhook(signature, signatureSha256, rawBody) {
-    firebase_functions_1.logger.info("Verifying GitHub webhook signature...");
-    // If no signature provided, verification fails
-    if (!signature && !signatureSha256) {
-        firebase_functions_1.logger.error("No signature provided in the request");
+// Verify GitHub webhook signature
+function verifyGitHubWebhook(req) {
+    const signature = req.headers['x-hub-signature-256'];
+    const rawBody = req.rawBody;
+    if (!signature || !rawBody || typeof signature !== 'string') {
         return false;
     }
-    try {
-        const webhookSecret = WEBHOOK_SECRET;
-        if (!webhookSecret) {
-            firebase_functions_1.logger.error("No webhook secret configured");
-            return false;
-        }
-        // Convert rawBody to string if it's a Buffer
-        const payloadString = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
-        firebase_functions_1.logger.info("Using webhook secret from environment variables");
-        firebase_functions_1.logger.info(`Webhook secret (first 4 chars): ${webhookSecret.substring(0, 4)}...`);
-        firebase_functions_1.logger.info(`Payload type: ${typeof rawBody}`);
-        firebase_functions_1.logger.info(`Payload string length: ${payloadString.length} chars`);
-        // Try SHA-256 signature first (preferred)
-        if (signatureSha256) {
-            firebase_functions_1.logger.info(`Received SHA-256 signature: ${signatureSha256}`);
-            const [algorithm, signatureValue] = signatureSha256.split('=');
-            if (!algorithm || !signatureValue) {
-                firebase_functions_1.logger.error("Invalid SHA-256 signature format");
-                return false;
-            }
-            const hmac = crypto.createHmac('sha256', webhookSecret);
-            hmac.update(payloadString);
-            const digest = hmac.digest('hex');
-            firebase_functions_1.logger.info(`Calculated digest (SHA-256): ${digest}`);
-            firebase_functions_1.logger.info(`Received signature value (SHA-256): ${signatureValue}`);
-            try {
-                const result = crypto.timingSafeEqual(Buffer.from(digest, 'hex'), Buffer.from(signatureValue, 'hex'));
-                firebase_functions_1.logger.info(`SHA-256 signature verification result: ${result}`);
-                if (result)
-                    return true;
-            }
-            catch (err) {
-                firebase_functions_1.logger.error("Error comparing SHA-256 signatures:", err);
-            }
-        }
-        // Fall back to SHA-1 signature if SHA-256 fails or isn't provided
-        if (signature) {
-            firebase_functions_1.logger.info(`Received SHA-1 signature: ${signature}`);
-            const [algorithm, signatureValue] = signature.split('=');
-            if (!algorithm || !signatureValue) {
-                firebase_functions_1.logger.error("Invalid SHA-1 signature format");
-                return false;
-            }
-            const hmac = crypto.createHmac('sha1', webhookSecret);
-            hmac.update(payloadString);
-            const digest = hmac.digest('hex');
-            firebase_functions_1.logger.info(`Calculated digest (SHA-1): ${digest}`);
-            firebase_functions_1.logger.info(`Received signature value (SHA-1): ${signatureValue}`);
-            try {
-                const result = crypto.timingSafeEqual(Buffer.from(digest, 'hex'), Buffer.from(signatureValue, 'hex'));
-                firebase_functions_1.logger.info(`SHA-1 signature verification result: ${result}`);
-                return result;
-            }
-            catch (err) {
-                firebase_functions_1.logger.error("Error comparing SHA-1 signatures:", err);
-                return false;
-            }
-        }
-        return false;
-    }
-    catch (error) {
-        firebase_functions_1.logger.error("Error verifying webhook signature:", error);
-        return false;
-    }
+    const hmac = crypto.createHmac('sha256', githubConfig.webhookSecret);
+    const digest = 'sha256=' + hmac.update(rawBody).digest('hex');
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
 }
 /**
  * Process payment for a completed bounty
@@ -271,7 +215,6 @@ async function sendPaymentFailureAlert(bountyId, errorMessage) {
  * Handle pull request events from GitHub
  */
 async function handlePullRequestEvent(payload) {
-    var _a, _b;
     firebase_functions_1.logger.info("Handling pull request event...");
     firebase_functions_1.logger.info(`Action: ${payload.action}`);
     firebase_functions_1.logger.info(`PR URL: ${payload.pull_request.html_url}`);
@@ -302,7 +245,7 @@ async function handlePullRequestEvent(payload) {
                     metadata = {
                         merged: true,
                         mergedAt: payload.pull_request.merged_at,
-                        mergedBy: (_a = payload.pull_request.merged_by) === null || _a === void 0 ? void 0 : _a.login,
+                        mergedBy: payload.pull_request.merged_by?.login,
                         prUrl: payload.pull_request.html_url
                     };
                     // Log PR and issue information for debugging
@@ -317,7 +260,7 @@ async function handlePullRequestEvent(payload) {
                         status: PaymentStatus.PENDING,
                         createdAt: new Date().toISOString(),
                         prMergedAt: payload.pull_request.merged_at,
-                        prMergedBy: (_b = payload.pull_request.merged_by) === null || _b === void 0 ? void 0 : _b.login,
+                        prMergedBy: payload.pull_request.merged_by?.login,
                         prUrl: payload.pull_request.html_url
                     });
                     // Then attempt to process payment with auto-completion via smart contract
@@ -326,7 +269,13 @@ async function handlePullRequestEvent(payload) {
                     if (paymentResult.success) {
                         firebase_functions_1.logger.info(`Payment successful for bounty ${bounty.id}`);
                         // Update metadata with payment info
-                        await (0, firestore_1.updateBountyStatus)(bounty.id, newStatus, Object.assign(Object.assign({}, metadata), { paymentCompleted: true, paymentCompletedAt: new Date().toISOString(), paymentMethod: 'auto', transactionSignature: paymentResult.signature }));
+                        await (0, firestore_1.updateBountyStatus)(bounty.id, newStatus, {
+                            ...metadata,
+                            paymentCompleted: true,
+                            paymentCompletedAt: new Date().toISOString(),
+                            paymentMethod: 'auto',
+                            transactionSignature: paymentResult.signature
+                        });
                     }
                     else {
                         firebase_functions_1.logger.error(`Automatic payment processing failed for bounty ${bounty.id}: ${paymentResult.error}`);
@@ -424,105 +373,57 @@ async function handlePullRequestReviewEvent(payload) {
     }
 }
 // Main webhook handler function
-exports.githubWebhookHandler = (0, https_1.onRequest)(async (request, response) => {
-    // Get the raw body for signature verification
-    // If we don't have rawBody, try to get it from the request
-    if (!request.rawBody && request.body) {
-        firebase_functions_1.logger.warn('Raw body not provided, using stringified body instead (this is not ideal)');
-    }
-    firebase_functions_1.logger.info('Received GitHub webhook request', {
-        method: request.method,
-        path: request.path,
-        query: request.query,
-        eventType: request.headers['x-github-event']
-    });
-    // Log all headers for debugging
-    firebase_functions_1.logger.info('Request headers:', request.headers);
-    // Only allow POST requests
-    if (request.method !== 'POST') {
-        firebase_functions_1.logger.warn(`Invalid method: ${request.method}`);
-        response.status(405).send('Method Not Allowed');
+exports.githubWebhookHandler = (0, https_1.onRequest)(async (req, res) => {
+    // Verify webhook signature
+    if (!verifyGitHubWebhook(req)) {
+        firebase_functions_1.logger.error('Invalid webhook signature');
+        res.status(401).json({ error: 'Invalid signature' });
         return;
     }
-    const event = request.headers['x-github-event'];
-    firebase_functions_1.logger.info(`Received GitHub event: ${event}`);
-    // Handle ping event (sent when webhook is created)
-    if (event === 'ping') {
-        firebase_functions_1.logger.info('Received ping event');
-        response.status(200).send('Pong!');
-        return;
+    const event = req.headers['x-github-event'];
+    const payload = req.body;
+    // Log event details if verbose logging is enabled
+    if (loggingConfig.verbose) {
+        firebase_functions_1.logger.info('Received webhook event:', { event, payload });
     }
-    // Get signatures from headers
-    const signature = request.headers['x-hub-signature'];
-    const signatureSha256 = request.headers['x-hub-signature-256'];
-    if (!signature && !signatureSha256) {
-        firebase_functions_1.logger.error('No signature found in headers');
-        response.status(401).send('No signature provided');
-        return;
-    }
-    // Determine what to use for verification
-    let bodyToVerify;
-    if (request.rawBody) {
-        // Use rawBody if available (preferred)
-        bodyToVerify = request.rawBody;
-        firebase_functions_1.logger.info('Using raw request body for verification');
-    }
-    else {
-        // Fall back to stringified body if rawBody not available
-        bodyToVerify = JSON.stringify(request.body);
-        firebase_functions_1.logger.warn('Raw body not available, using JSON.stringify(request.body) as fallback (less reliable)');
-    }
-    // Log payload info for debugging
-    firebase_functions_1.logger.info('Payload type:', typeof bodyToVerify);
-    if (Buffer.isBuffer(bodyToVerify)) {
-        firebase_functions_1.logger.info('Payload size:', bodyToVerify.length);
-        firebase_functions_1.logger.debug('Payload preview:', bodyToVerify.toString('utf8').substring(0, 100));
-    }
-    else {
-        firebase_functions_1.logger.info('Payload size:', bodyToVerify.length);
-        firebase_functions_1.logger.debug('Payload preview:', bodyToVerify.substring(0, 100));
-    }
-    // Verify the signature against the body
-    const isValidSignature = verifyGitHubWebhook(signature, signatureSha256, bodyToVerify);
-    if (!isValidSignature) {
-        firebase_functions_1.logger.error('Invalid signature');
-        firebase_functions_1.logger.error('Expected signatures:', {
-            sha1: signature,
-            sha256: signatureSha256
-        });
-        // For debugging purposes, you can temporarily disable verification
-        // but this should NEVER be done in production
-        const BYPASS_VERIFICATION = false; // IMPORTANT: Always keep this as false in production
-        if (BYPASS_VERIFICATION) {
-            firebase_functions_1.logger.warn('⚠️ WARNING: Bypassing signature verification for debugging!');
-        }
-        else {
-            response.status(401).send('Invalid signature');
-            return;
-        }
-    }
-    firebase_functions_1.logger.info('Signature verified, processing webhook');
     try {
-        // Process pull request events
-        if (event === 'pull_request') {
-            firebase_functions_1.logger.info('Processing pull request event');
-            await handlePullRequestEvent(request.body);
+        switch (event) {
+            case 'ping':
+                res.status(200).json({ message: 'Webhook configured successfully' });
+                return;
+            case 'pull_request':
+                const prUrl = payload.pull_request.html_url;
+                const bounty = await (0, firestore_1.getBountyByPR)(prUrl);
+                if (!bounty) {
+                    res.status(400).json({ error: 'No bounty found for this PR' });
+                    return;
+                }
+                if (payload.action === 'closed' && payload.pull_request.merged) {
+                    // PR was merged, update bounty status to completed
+                    await (0, firestore_1.updateBountyStatus)(bounty.id, 'completed');
+                    res.status(200).json({ message: 'Bounty completed' });
+                    return;
+                }
+                else if (payload.action === 'opened') {
+                    // New PR opened, update bounty status to in_progress
+                    await (0, firestore_1.updateBountyStatus)(bounty.id, 'in_progress');
+                    res.status(200).json({ message: 'Bounty status updated to in_progress' });
+                    return;
+                }
+                break;
+            case 'pull_request_review':
+                firebase_functions_1.logger.info('Processing pull request review event');
+                await handlePullRequestReviewEvent(payload);
+                res.status(200).json({ message: 'Event processed' });
+                return;
+            default:
+                res.status(400).json({ error: 'Unsupported event type' });
+                return;
         }
-        // Process pull request review events
-        else if (event === 'pull_request_review') {
-            firebase_functions_1.logger.info('Processing pull request review event');
-            await handlePullRequestReviewEvent(request.body);
-        }
-        // Log other event types but don't process them
-        else {
-            firebase_functions_1.logger.info(`Received unhandled event type: ${event}`);
-        }
-        // Default success response
-        response.status(200).send('Webhook processed successfully');
     }
     catch (error) {
         firebase_functions_1.logger.error('Error processing webhook:', error);
-        response.status(500).send('Error processing webhook');
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 // Function to handle new pull requests and associate them with bounties

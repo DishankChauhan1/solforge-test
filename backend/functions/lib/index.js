@@ -34,6 +34,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.revokeGithubAccess = exports.refreshGithubToken = exports.githubOAuthCallback = exports.githubOAuthInitiate = exports.verifyPullRequestForBounty = exports.validateGitHubRepository = exports.githubAppWebhookTest = exports.githubAppWebhookHandler = exports.webhookTest = exports.githubWebhookHandler = exports.getBountyById = exports.getAllBounties = exports.claimBountyHandler = exports.createBountyHandlerV2 = exports.createBountyHandler = exports.verifyPR = void 0;
 const admin = __importStar(require("firebase-admin"));
 const v2_1 = require("firebase-functions/v2");
+const firebase_functions_1 = require("firebase-functions");
 const bounties_1 = require("./routes/bounties");
 Object.defineProperty(exports, "verifyPR", { enumerable: true, get: function () { return bounties_1.verifyPR; } });
 Object.defineProperty(exports, "createBountyHandler", { enumerable: true, get: function () { return bounties_1.createBountyHandler; } });
@@ -44,17 +45,53 @@ Object.defineProperty(exports, "getBountyById", { enumerable: true, get: functio
 const github_webhooks_1 = require("./routes/github-webhooks");
 Object.defineProperty(exports, "githubWebhookHandler", { enumerable: true, get: function () { return github_webhooks_1.githubWebhookHandler; } });
 Object.defineProperty(exports, "webhookTest", { enumerable: true, get: function () { return github_webhooks_1.webhookTest; } });
-const github_app_webhooks_1 = require("./routes/github-app-webhooks");
-Object.defineProperty(exports, "githubAppWebhookHandler", { enumerable: true, get: function () { return github_app_webhooks_1.githubAppWebhookHandler; } });
-Object.defineProperty(exports, "githubAppWebhookTest", { enumerable: true, get: function () { return github_app_webhooks_1.githubAppWebhookTest; } });
-const repository_validation_1 = require("./routes/repository-validation");
-Object.defineProperty(exports, "validateGitHubRepository", { enumerable: true, get: function () { return repository_validation_1.validateGitHubRepository; } });
-Object.defineProperty(exports, "verifyPullRequestForBounty", { enumerable: true, get: function () { return repository_validation_1.verifyPullRequestForBounty; } });
-const auth_routes_1 = require("./routes/auth-routes");
-Object.defineProperty(exports, "githubOAuthInitiate", { enumerable: true, get: function () { return auth_routes_1.githubOAuthInitiate; } });
-Object.defineProperty(exports, "githubOAuthCallback", { enumerable: true, get: function () { return auth_routes_1.githubOAuthCallback; } });
-Object.defineProperty(exports, "refreshGithubToken", { enumerable: true, get: function () { return auth_routes_1.refreshGithubToken; } });
-Object.defineProperty(exports, "revokeGithubAccess", { enumerable: true, get: function () { return auth_routes_1.revokeGithubAccess; } });
+// Import GitHub app related modules safely
+let githubAppWebhookHandler;
+exports.githubAppWebhookHandler = githubAppWebhookHandler;
+let githubAppWebhookTest;
+exports.githubAppWebhookTest = githubAppWebhookTest;
+let validateGitHubRepository;
+exports.validateGitHubRepository = validateGitHubRepository;
+let verifyPullRequestForBounty;
+exports.verifyPullRequestForBounty = verifyPullRequestForBounty;
+let githubOAuthInitiate;
+exports.githubOAuthInitiate = githubOAuthInitiate;
+let githubOAuthCallback;
+exports.githubOAuthCallback = githubOAuthCallback;
+let refreshGithubToken;
+exports.refreshGithubToken = refreshGithubToken;
+let revokeGithubAccess;
+exports.revokeGithubAccess = revokeGithubAccess;
+try {
+    // Try to import GitHub app related modules
+    const githubAppWebhooks = require('./routes/github-app-webhooks');
+    const repositoryValidation = require('./routes/repository-validation');
+    const authRoutes = require('./routes/auth-routes');
+    // Assign imported functions if available
+    exports.githubAppWebhookHandler = githubAppWebhookHandler = githubAppWebhooks.githubAppWebhookHandler;
+    exports.githubAppWebhookTest = githubAppWebhookTest = githubAppWebhooks.githubAppWebhookTest;
+    exports.validateGitHubRepository = validateGitHubRepository = repositoryValidation.validateGitHubRepository;
+    exports.verifyPullRequestForBounty = verifyPullRequestForBounty = repositoryValidation.verifyPullRequestForBounty;
+    exports.githubOAuthInitiate = githubOAuthInitiate = authRoutes.githubOAuthInitiate;
+    exports.githubOAuthCallback = githubOAuthCallback = authRoutes.githubOAuthCallback;
+    exports.refreshGithubToken = refreshGithubToken = authRoutes.refreshGithubToken;
+    exports.revokeGithubAccess = revokeGithubAccess = authRoutes.revokeGithubAccess;
+    firebase_functions_1.logger.info("GitHub app integrations loaded successfully");
+}
+catch (error) {
+    // Create mock implementations for functions that couldn't be imported
+    firebase_functions_1.logger.warn("Error loading GitHub app integrations:", error);
+    firebase_functions_1.logger.warn("Using mock implementations for GitHub app functions");
+    // Mock implementations for GitHub app functions
+    exports.githubAppWebhookHandler = githubAppWebhookHandler = (req, res) => res.status(503).send('GitHub app integration not available');
+    exports.githubAppWebhookTest = githubAppWebhookTest = (req, res) => res.status(200).json({ status: 'mock', message: 'Mock endpoint' });
+    exports.validateGitHubRepository = validateGitHubRepository = (data) => ({ valid: false, error: 'GitHub app integration not available' });
+    exports.verifyPullRequestForBounty = verifyPullRequestForBounty = (data) => ({ valid: false, error: 'GitHub app integration not available' });
+    exports.githubOAuthInitiate = githubOAuthInitiate = (req, res) => res.status(503).send('GitHub OAuth not available');
+    exports.githubOAuthCallback = githubOAuthCallback = (req, res) => res.status(503).send('GitHub OAuth not available');
+    exports.refreshGithubToken = refreshGithubToken = (req, res) => res.status(503).json({ error: 'GitHub OAuth not available' });
+    exports.revokeGithubAccess = revokeGithubAccess = (req, res) => res.status(503).json({ error: 'GitHub OAuth not available' });
+}
 // Set global options for all functions
 (0, v2_1.setGlobalOptions)({
     maxInstances: 10,

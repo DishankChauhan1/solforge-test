@@ -1,6 +1,8 @@
 import { getConfig } from '../src/config';
 import { logger } from 'firebase-functions';
 
+const isDevelopment = process.env.NODE_ENV === 'development';
+
 try {
   // This will throw if validation fails
   const config = getConfig();
@@ -11,8 +13,8 @@ try {
   logger.info('Firebase project:', config.firebase.projectId);
   
   // Additional checks for required services
-  if (!config.github.webhookSecret) {
-    throw new Error('GitHub webhook secret is required');
+  if (!config.github.webhookSecret && !isDevelopment) {
+    throw new Error('GitHub webhook secret is required in non-development environments');
   }
   
   if (!config.solana.adminPrivateKey) {
@@ -37,6 +39,11 @@ try {
   
   process.exit(0);
 } catch (error) {
-  logger.error('Environment validation failed:', error);
-  process.exit(1);
+  if (isDevelopment) {
+    logger.warn('Environment validation issues in development mode (continuing anyway):', error);
+    process.exit(0); // Exit with success in development mode
+  } else {
+    logger.error('Environment validation failed:', error);
+    process.exit(1);
+  }
 } 

@@ -11,8 +11,36 @@ interface WebhookRequest extends Request {
   rawBody?: Buffer;
 }
 
+/**
+ * Helper function to safely access configuration properties
+ */
+function getConfigSafely(path: string, defaultValue: any = null) {
+  try {
+    const parts = path.split('.');
+    let current = functions.config() || {};
+    
+    for (const part of parts) {
+      if (current === undefined || current === null || typeof current !== 'object') {
+        return defaultValue;
+      }
+      current = current[part];
+    }
+    
+    return current !== undefined ? current : defaultValue;
+  } catch (error) {
+    logger.warn(`Error accessing config path ${path}:`, error);
+    return defaultValue;
+  }
+}
+
 // Get the GitHub App webhook secret from Firebase config or environment variables
-const GITHUB_APP_WEBHOOK_SECRET = functions.config().github.app_webhook_secret || process.env.GITHUB_APP_WEBHOOK_SECRET;
+const GITHUB_APP_WEBHOOK_SECRET = getConfigSafely('github.app_webhook_secret') || process.env.GITHUB_APP_WEBHOOK_SECRET || process.env.APP_WEBHOOK_SECRET;
+
+// Use a dummy webhook secret for local development if not configured
+if (!GITHUB_APP_WEBHOOK_SECRET) {
+  logger.warn("GitHub webhook secret not properly configured. Using fallback for local development.");
+  logger.warn("Set proper secrets before deploying to production.");
+}
 
 /**
  * Verify that the webhook is from GitHub by checking the signature
@@ -31,7 +59,7 @@ function verifyGitHubWebhook(
   }
 
   try {
-    const webhookSecret = GITHUB_APP_WEBHOOK_SECRET;
+    const webhookSecret = GITHUB_APP_WEBHOOK_SECRET || "dummy-secret-for-local-development-only";
     
     if (!webhookSecret) {
       logger.error("No webhook secret configured");

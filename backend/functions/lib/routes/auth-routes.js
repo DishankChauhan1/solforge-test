@@ -300,7 +300,7 @@ async function getGithubToken(userId) {
                     if (refreshed) {
                         const updatedDoc = await db.collection('users').doc(userId).collection('providers').doc('github').get();
                         const updatedData = updatedDoc.data();
-                        return (updatedData === null || updatedData === void 0 ? void 0 : updatedData.accessToken) || null;
+                        return updatedData?.accessToken || null;
                     }
                 }
                 catch (error) {

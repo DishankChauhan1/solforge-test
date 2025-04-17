@@ -36,24 +36,31 @@ const getDb = () => {
 const createUser = async (userId, userData) => {
     const db = getDb();
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
-    const user = Object.assign(Object.assign({}, userData), { createdAt: timestamp, updatedAt: timestamp });
+    const user = {
+        ...userData,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
     await db.collection('users').doc(userId).set(user);
     const userDoc = await db.collection('users').doc(userId).get();
-    return Object.assign({ id: userDoc.id }, userDoc.data());
+    return { id: userDoc.id, ...userDoc.data() };
 };
 exports.createUser = createUser;
 const updateUser = async (userId, userData) => {
     const db = getDb();
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
-    await db.collection('users').doc(userId).update(Object.assign(Object.assign({}, userData), { updatedAt: timestamp }));
+    await db.collection('users').doc(userId).update({
+        ...userData,
+        updatedAt: timestamp,
+    });
     const userDoc = await db.collection('users').doc(userId).get();
-    return Object.assign({ id: userDoc.id }, userDoc.data());
+    return { id: userDoc.id, ...userDoc.data() };
 };
 exports.updateUser = updateUser;
 const getUser = async (userId) => {
     const db = getDb();
     const userDoc = await db.collection('users').doc(userId).get();
-    return userDoc.exists ? Object.assign({ id: userDoc.id }, userDoc.data()) : null;
+    return userDoc.exists ? { id: userDoc.id, ...userDoc.data() } : null;
 };
 exports.getUser = getUser;
 const getBounty = async (bountyId) => {
@@ -63,7 +70,7 @@ const getBounty = async (bountyId) => {
         return null;
     }
     const data = bountyDoc.data();
-    return Object.assign({ id: bountyDoc.id }, data);
+    return { id: bountyDoc.id, ...data };
 };
 exports.getBounty = getBounty;
 const createBounty = async (data) => {
@@ -88,7 +95,7 @@ const createBounty = async (data) => {
     const docRef = await db.collection('bounties').add(bountyData);
     const doc = await docRef.get();
     const savedData = doc.data();
-    return Object.assign({ id: doc.id }, savedData);
+    return { id: doc.id, ...savedData };
 };
 exports.createBounty = createBounty;
 const listBounties = async (status) => {
@@ -99,7 +106,7 @@ const listBounties = async (status) => {
     }
     query = query.orderBy('createdAt', 'desc');
     const bounties = await query.get();
-    return bounties.docs.map(doc => (Object.assign({ id: doc.id }, doc.data())));
+    return bounties.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 };
 exports.listBounties = listBounties;
 const claimBounty = async (bountyId, userId, pullRequestUrl) => {
@@ -116,7 +123,7 @@ const claimBounty = async (bountyId, userId, pullRequestUrl) => {
     await bountyRef.update(updateData);
     const updatedDoc = await bountyRef.get();
     const updatedData = updatedDoc.data();
-    return Object.assign({ id: updatedDoc.id }, updatedData);
+    return { id: updatedDoc.id, ...updatedData };
 };
 exports.claimBounty = claimBounty;
 const approveBounty = async (bountyId) => {
@@ -127,7 +134,7 @@ const approveBounty = async (bountyId) => {
         updatedAt: timestamp,
     });
     const bountyDoc = await db.collection('bounties').doc(bountyId).get();
-    return Object.assign({ id: bountyDoc.id }, bountyDoc.data());
+    return { id: bountyDoc.id, ...bountyDoc.data() };
 };
 exports.approveBounty = approveBounty;
 const getBountyByPR = async (prUrl) => {
@@ -140,13 +147,17 @@ const getBountyByPR = async (prUrl) => {
         return null;
     }
     const doc = bountySnapshot.docs[0];
-    return Object.assign({ id: doc.id }, doc.data());
+    return { id: doc.id, ...doc.data() };
 };
 exports.getBountyByPR = getBountyByPR;
 async function updateBountyStatus(bountyId, status, metadata) {
     try {
         const bountyRef = getDb().collection('bounties').doc(bountyId);
-        await bountyRef.update(Object.assign({ status, updatedAt: admin.firestore.Timestamp.now() }, (metadata && { statusMetadata: metadata })));
+        await bountyRef.update({
+            status,
+            updatedAt: admin.firestore.Timestamp.now(),
+            ...(metadata && { statusMetadata: metadata })
+        });
     }
     catch (error) {
         console.error('Error updating bounty status:', error);
@@ -165,7 +176,7 @@ const getBountyByIssueUrl = async (issueUrl) => {
         return null;
     }
     const doc = bountySnapshot.docs[0];
-    return Object.assign({ id: doc.id }, doc.data());
+    return { id: doc.id, ...doc.data() };
 };
 exports.getBountyByIssueUrl = getBountyByIssueUrl;
 // Get bounties by repository URL
@@ -177,7 +188,10 @@ const getBountyByRepo = async (repositoryUrl) => {
     if (bountySnapshot.empty) {
         return [];
     }
-    return bountySnapshot.docs.map(doc => (Object.assign({ id: doc.id }, doc.data())));
+    return bountySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+    }));
 };
 exports.getBountyByRepo = getBountyByRepo;
 // Update a bounty with PR information
@@ -206,12 +220,20 @@ const updateBountyPayment = async (bountyId, paymentData) => {
     // Create payment tracking structure if it doesn't exist
     const updateData = {
         updatedAt: now,
-        payment: Object.assign(Object.assign({}, paymentData), { updatedAt: now })
+        payment: {
+            ...paymentData,
+            updatedAt: now
+        }
     };
     await bountyRef.update(updateData);
     // Also update a separate payment history record for audit
     const paymentHistoryRef = db.collection('payment_history').doc();
-    await paymentHistoryRef.set(Object.assign(Object.assign({ bountyId }, paymentData), { createdAt: now, updatedAt: now }));
+    await paymentHistoryRef.set({
+        bountyId,
+        ...paymentData,
+        createdAt: now,
+        updatedAt: now
+    });
     // Log the payment update
     console.log(`Updated payment information for bounty ${bountyId}:`, paymentData);
 };

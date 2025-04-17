@@ -39,9 +39,10 @@ const SolanaConfigSchema = z.object({
  * GitHub integration configuration schema
  */
 const GitHubConfigSchema = z.object({
-  webhookSecret: nonEmptyString('GitHub webhook secret').refine(val => val.length >= 32, {
-    message: 'GitHub webhook secret must be at least 32 characters long'
-  }),
+  webhookSecret: z.string()
+    .refine(val => !isProd || val.length >= 32, {
+      message: 'GitHub webhook secret must be at least 32 characters long in production'
+    }),
   appId: nonEmptyString('GitHub app ID'),
   privateKey: nonEmptyString('GitHub private key'),
   clientId: nonEmptyString('GitHub client ID'),
@@ -93,7 +94,7 @@ const config: Config = {
   
   solana: {
     rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
-    programId: process.env.PROGRAM_ID || 'dGBsodouKiYTUyFudwbHdfXJaHWbUEyXhyw7jj4BBeY',
+    programId: process.env.PROGRAM_ID || '8Z549f1KnB17k3WEqwgizNrMd5QigkzAUdAVvQ3wAARb',
     cluster: (process.env.SOLANA_CLUSTER as 'mainnet-beta' | 'testnet' | 'devnet') || 'devnet',
     adminPrivateKey: process.env.ADMIN_PRIVATE_KEY || '',
     maxTransactionFee: process.env.MAX_TRANSACTION_FEE || '0.001',

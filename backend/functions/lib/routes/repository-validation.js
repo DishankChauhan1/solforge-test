@@ -1,4 +1,27 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyPullRequestForBounty = exports.validateGitHubRepository = void 0;
 const https_1 = require("firebase-functions/v2/https");
@@ -81,7 +104,7 @@ exports.verifyPullRequestForBounty = (0, https_1.onCall)({
         }
         firebase_functions_1.logger.info(`Verifying pull request: ${pullRequestUrl} for issue: ${issueUrl}`);
         // Import the function dynamically to avoid circular dependencies
-        const { verifyPullRequestForBounty: verifyPR } = await import('../services/github-app.js');
+        const { verifyPullRequestForBounty: verifyPR } = await Promise.resolve().then(() => __importStar(require('../services/github-app.js')));
         const result = await verifyPR(pullRequestUrl, issueUrl, expectedAuthor);
         if (result.isValid) {
             firebase_functions_1.logger.info(`Pull request ${pullRequestUrl} is valid for bounty`);

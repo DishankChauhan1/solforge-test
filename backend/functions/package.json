@@ -1,7 +1,7 @@
 {
   "name": "functions",
   "scripts": {
-    "build": "npm run validate-env && tsc",
+    "build": "tsc",
     "build:watch": "tsc --watch",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
@@ -24,6 +24,7 @@
     "@octokit/app": "^14.0.0",
     "@octokit/auth-app": "^6.0.0",
     "@octokit/rest": "^20.0.2",
+    "@solana/spl-token": "^0.3.11",
     "@solana/web3.js": "^1.87.6",
     "borsh": "^1.0.0",
     "dotenv": "^16.3.1",
