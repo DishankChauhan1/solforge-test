@@ -5,6 +5,8 @@ import * as crypto from 'crypto';
 import * as functions from 'firebase-functions';
 import { getBountyByPR, updateBountyStatus, getBountyByIssueUrl, getBountyByRepo, updateBountyWithPR } from '../services/firestore';
 import { BountyStatus } from '../types/bounty';
+import { processBountyPayment } from '../services/payment-service';
+import * as admin from 'firebase-admin';
 
 // Define an interface that extends Express.Request to include rawBody
 interface WebhookRequest extends Request {
@@ -173,6 +175,50 @@ async function handlePullRequestEvent(payload: any) {
             mergedAt: payload.pull_request.merged_at,
             mergedBy: payload.pull_request.merged_by?.login
           };
+          
+          // Trigger payment processing for merged PR
+          logger.info(`PR for bounty ${bounty.id} was merged. Triggering payment processing.`);
+          
+          // Get the submission associated with this PR
+          const db = admin.firestore();
+          const submissionsSnapshot = await db.collection('submissions')
+            .where('bountyId', '==', bounty.id)
+            .where('pullRequestUrl', '==', payload.pull_request.html_url)
+            .limit(1)
+            .get();
+          
+          if (!submissionsSnapshot.empty) {
+            const submission = submissionsSnapshot.docs[0];
+            const submissionData = submission.data();
+            
+            logger.info(`Found submission ${submission.id} for PR. Processing payment.`);
+            
+            try {
+              // Process the payment
+              const paymentResult = await processBountyPayment(
+                bounty.id,
+                submission.id,
+                submissionData.userId
+              );
+              
+              if (paymentResult.success) {
+                logger.info(`Payment processed successfully for bounty ${bounty.id}`);
+                
+                // Add payment info to metadata
+                metadata.paymentProcessed = true;
+                metadata.paymentSignature = paymentResult.signature;
+              } else {
+                logger.error(`Payment processing failed: ${paymentResult.message}`);
+                metadata.paymentError = paymentResult.message;
+              }
+            } catch (error) {
+              logger.error(`Error triggering payment: ${error}`);
+              metadata.paymentError = `Error: ${error}`;
+            }
+          } else {
+            logger.error(`No submission found for PR ${payload.pull_request.html_url}`);
+            metadata.submissionError = "No submission found for this PR";
+          }
         } else {
           newStatus = 'changes_requested';
           metadata = {

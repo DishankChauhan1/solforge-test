@@ -286,4 +286,168 @@ export const updateBountyPayment = async (
   
   // Log the payment update
   console.log(`Updated payment information for bounty ${bountyId}:`, paymentData);
+};
+
+/**
+ * Submit a claim for a bounty (supports multiple submissions per bounty)
+ */
+export const submitClaim = async (
+  bountyId: string,
+  userId: string,
+  pullRequestUrl: string,
+  description: string = ''
+): Promise<{submission: any, bounty: Bounty}> => {
+  const db = getDb();
+  const bountyRef = db.collection('bounties').doc(bountyId);
+  const now = admin.firestore.Timestamp.now();
+
+  // Get bounty to verify it's open
+  const bountyDoc = await bountyRef.get();
+  if (!bountyDoc.exists) {
+    throw new Error('Bounty not found');
+  }
+  
+  const bountyData = bountyDoc.data() as BountyDocument;
+  if (bountyData.status !== 'open') {
+    throw new Error('Bounty is not open for submissions');
+  }
+  
+  // Create the submission document
+  const submissionData = {
+    bountyId,
+    userId,
+    pullRequestUrl,
+    description,
+    status: 'submitted',
+    createdAt: now,
+    updatedAt: now
+  };
+  
+  // Add submission to the submissions collection
+  const submissionRef = await db.collection('submissions').add(submissionData);
+  
+  // Update the bounty to indicate it has submissions
+  await bountyRef.update({
+    hasSubmissions: true,
+    updatedAt: now
+  });
+  
+  // Get the created submission
+  const submissionDoc = await submissionRef.get();
+  
+  return {
+    submission: { id: submissionDoc.id, ...submissionDoc.data() },
+    bounty: { id: bountyDoc.id, ...bountyData }
+  };
+};
+
+/**
+ * Get all submissions for a bounty
+ */
+export const getBountySubmissions = async (bountyId: string): Promise<any[]> => {
+  const db = getDb();
+  
+  const submissionsSnapshot = await db.collection('submissions')
+    .where('bountyId', '==', bountyId)
+    .orderBy('createdAt', 'desc')
+    .get();
+  
+  return submissionsSnapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  }));
+};
+
+/**
+ * Approve a submission and process payment
+ */
+export const approveSubmission = async (
+  submissionId: string,
+  bountyId: string,
+  approverUserId: string
+): Promise<{success: boolean, message: string}> => {
+  const db = getDb();
+  const now = admin.firestore.Timestamp.now();
+  
+  // Run in a transaction to ensure consistency
+  return db.runTransaction(async (transaction) => {
+    // Get the submission
+    const submissionRef = db.collection('submissions').doc(submissionId);
+    const submissionDoc = await transaction.get(submissionRef);
+    
+    if (!submissionDoc.exists) {
+      throw new Error('Submission not found');
+    }
+    
+    const submissionData = submissionDoc.data();
+    if (!submissionData) {
+      throw new Error('Submission data is empty');
+    }
+    
+    // Get the bounty
+    const bountyRef = db.collection('bounties').doc(bountyId);
+    const bountyDoc = await transaction.get(bountyRef);
+    
+    if (!bountyDoc.exists) {
+      throw new Error('Bounty not found');
+    }
+    
+    const bountyData = bountyDoc.data();
+    if (!bountyData) {
+      throw new Error('Bounty data is empty');
+    }
+    
+    // Check if bounty is already completed
+    if (bountyData.status === 'completed') {
+      throw new Error('Bounty is already completed');
+    }
+    
+    // Update submission status
+    transaction.update(submissionRef, {
+      status: 'approved',
+      approvedBy: approverUserId,
+      approvedAt: now,
+      updatedAt: now
+    });
+    
+    // Update bounty status
+    transaction.update(bountyRef, {
+      status: 'completed',
+      completedAt: now,
+      completedBy: submissionData.userId,
+      winningSubmissionId: submissionId,
+      updatedAt: now
+    });
+    
+    return {
+      success: true,
+      message: 'Submission approved and bounty marked as completed',
+      submissionId,
+      bountyId
+    };
+  });
+};
+
+/**
+ * Reject a submission
+ */
+export const rejectSubmission = async (
+  submissionId: string,
+  rejectionReason: string = '',
+  rejectedBy: string
+): Promise<{success: boolean}> => {
+  const db = getDb();
+  const now = admin.firestore.Timestamp.now();
+  
+  const submissionRef = db.collection('submissions').doc(submissionId);
+  
+  await submissionRef.update({
+    status: 'rejected',
+    rejectionReason,
+    rejectedBy,
+    rejectedAt: now,
+    updatedAt: now
+  });
+  
+  return { success: true };
 }; 

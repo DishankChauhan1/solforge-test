@@ -13,7 +13,8 @@ import { toast } from 'react-hot-toast';
 import { PaymentStatus } from '@/components/payment/PaymentStatus';
 
 export default function BountyPage() {
-  const { id } = useParams();
+  const params = useParams();
+  const id = params?.id as string;
   const router = useRouter();
   const { user } = useAuth();
   const { connected, publicKey } = useWallet();

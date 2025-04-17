@@ -1,8 +1,9 @@
 import { Connection, PublicKey, Keypair, Transaction, SystemProgram } from "@solana/web3.js";
 import { web3 } from "@coral-xyz/anchor";
+// Dynamic imports only for SPL token to avoid ESM/CommonJS compatibility issues
 import { getSolanaConfig } from '../config';
 
-// Define variables for SPL token functions
+// We'll use these later with dynamic imports
 let TOKEN_PROGRAM_ID: any;
 let getAssociatedTokenAddress: any;
 let createAssociatedTokenAccountInstruction: any;
@@ -14,9 +15,8 @@ const loadSplTokenModule = async () => {
   if (splTokenLoaded) return;
   
   try {
-    // Dynamic import using Function to avoid TypeScript static analysis issues
-    const dynamicImport = new Function('return import("@solana/spl-token")')();
-    const splToken = await dynamicImport;
+    // Dynamic import for SPL token modules
+    const splToken = await import('@solana/spl-token');
     
     TOKEN_PROGRAM_ID = splToken.TOKEN_PROGRAM_ID;
     getAssociatedTokenAddress = splToken.getAssociatedTokenAddress;
@@ -258,8 +258,9 @@ export const transferSPLToken = async (
   amount: number
 ): Promise<string> => {
   try {
-    // Make sure SPL token modules are loaded
-    if (!splTokenLoaded) {
+    // Ensure SPL Token module is initialized
+    if (!TOKEN_PROGRAM_ID) {
+      console.log('Initializing SPL token module');
       await loadSplTokenModule();
     }
     
@@ -321,6 +322,92 @@ export const transferSPLToken = async (
       return `mock-spl-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     }
     
+    throw error;
+  }
+};
+
+/**
+ * Extend the deadline for a bounty
+ * @param bountyAccountPublicKey The bounty account public key
+ * @param newDeadline The new deadline timestamp in seconds
+ */
+export const extendDeadline = async (
+  bountyAccountPublicKey: string,
+  newDeadline: number
+): Promise<{ success: boolean; signature: string }> => {
+  try {
+    const adminWallet = loadAdminWallet();
+    const bountyPubkey = new PublicKey(bountyAccountPublicKey);
+
+    // Create instruction data - instruction 5 is for ExtendDeadline
+    const data = Buffer.alloc(9);
+    data.writeUInt8(5, 0); // ExtendDeadline instruction index
+    data.writeBigUInt64LE(BigInt(newDeadline), 1); // New deadline
+
+    // Create instruction
+    const instruction = new web3.TransactionInstruction({
+      keys: [
+        { pubkey: adminWallet.publicKey, isSigner: true, isWritable: false },
+        { pubkey: bountyPubkey, isSigner: false, isWritable: true },
+      ],
+      programId: PROGRAM_ID,
+      data,
+    });
+
+    // Create and send transaction
+    const transaction = new Transaction().add(instruction);
+    const signature = await web3.sendAndConfirmTransaction(
+      connection,
+      transaction,
+      [adminWallet]
+    );
+
+    console.log(`Bounty deadline extended. Signature: ${signature}`);
+   
+    return { success: true, signature };
+  } catch (error) {
+    console.error("Error extending bounty deadline:", error);
+    throw error;
+  }
+};
+
+/**
+ * Cancel a bounty and return funds to the creator
+ * @param bountyAccountPublicKey The bounty account public key
+ */
+export const cancelBounty = async (
+  bountyAccountPublicKey: string
+): Promise<{ success: boolean; signature: string }> => {
+  try {
+    const adminWallet = loadAdminWallet();
+    const bountyPubkey = new PublicKey(bountyAccountPublicKey);
+
+    // Create instruction data - instruction 4 is for CancelBounty
+    const data = Buffer.from([4]); // CancelBounty instruction
+
+    // Create instruction
+    const instruction = new web3.TransactionInstruction({
+      keys: [
+        { pubkey: adminWallet.publicKey, isSigner: true, isWritable: false },
+        { pubkey: bountyPubkey, isSigner: false, isWritable: true },
+      ],
+      programId: PROGRAM_ID,
+      data,
+    });
+
+    // Create and send transaction
+    const transaction = new Transaction().add(instruction);
+    const signature = await web3.sendAndConfirmTransaction(
+      connection,
+      transaction,
+      [adminWallet]
+    );
+
+    console.log(`Bounty cancelled. Signature: ${signature}`);
+   
+    return { success: true, signature };
+  } catch (error) {
+    console.error("Error cancelling bounty:", error);
     throw error;
   }
 }; 
