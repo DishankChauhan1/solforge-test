@@ -1,4 +1,4 @@
-# SolForge - Decentralized Bounty Platform
+# SolForge - A Decentralized Bounty Platform
 
 A decentralized bounty platform built on Solana, allowing developers to create, claim, and complete bounties for open-source contributions.
 
