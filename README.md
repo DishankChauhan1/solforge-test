@@ -1,4 +1,4 @@
-# SolForge: Decentralized GitHub Bounty Platform
+#SolForge: Decentralized GitHub Bounty Platform
 
 ## Why We Built SolForge
 
